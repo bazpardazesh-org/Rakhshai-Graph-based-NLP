@@ -1,6 +1,7 @@
 # Rakhshai Graph-based NLP for Persian – کتابخانهٔ پردازش زبان طبیعی مبتنی بر گراف برای زبان فارسی
 
-![CI](https://github.com/unknown/gnn/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml)
+
 
 For documentation visit [docs/](docs/index.md).
 
