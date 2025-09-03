@@ -1,0 +1,9 @@
+site_name: Rakhshai GNN
+nav:
+  - Home: index.md
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [rakhshai_graph_nlp]
