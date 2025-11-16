@@ -1,11 +1,8 @@
 """Neural models for graph representation learning.
 
-This subpackage contains simple, dependency‑free implementations of
-graph neural network layers and models. They are designed to be
-sufficient for small to medium scale experiments but are not
-optimised for speed.  If you require more advanced or scalable
-implementations, consider integrating external frameworks such as
-PyTorch Geometric or DGL.
+This subpackage now wraps PyTorch Geometric primitives such as
+``GCNConv``, ``SAGEConv`` and ``GATConv`` so that experiments can run on
+either CPUs or GPUs with minimal changes to the public API.
 """
 
 __all__ = ["gcn", "gat", "graphsage"]
