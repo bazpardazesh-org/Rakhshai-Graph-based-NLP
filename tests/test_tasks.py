@@ -1,5 +1,6 @@
 import numpy as np
 
+from rakhshai_graph_nlp.features.pyg_data import graph_to_data
 from rakhshai_graph_nlp.graphs.graph import Graph
 from rakhshai_graph_nlp.tasks.classification import train_gcn_classifier
 from rakhshai_graph_nlp.tasks.hate_speech import contains_hate_speech
@@ -18,7 +19,8 @@ def test_train_gcn_classifier():
     labels = np.array([0, 1, 2])
     clf, losses = train_gcn_classifier(g, X, labels, num_epochs=5)
     assert len(losses) == 5
-    preds = clf.predict(g, X)
+    data = graph_to_data(g, features=X, labels=labels)
+    preds = clf.predict(data)
     assert preds.shape == (3,)
 
 def test_contains_hate_speech():
