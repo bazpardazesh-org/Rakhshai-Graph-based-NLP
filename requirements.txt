@@ -2,3 +2,5 @@ numpy
 scipy
 regex
 networkx
+torch
+torch-geometric
