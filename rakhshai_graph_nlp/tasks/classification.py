@@ -1,48 +1,123 @@
-"""Text classification tasks using graphs.
-
-This module provides utilities for training graph neural networks on
-graphs derived from Persian text.  The most common scenario is to
-construct a co‑occurrence or document graph and then perform node or
-graph classification.  Our implementation focuses on node
-classification using the Graph Convolutional Network (GCN) described
-by Kipf & Welling and used in the TextGCN model【136383271440271†L816-L825】.
-
-Example
--------
-Suppose you have a corpus of documents and corresponding labels.  You
-can build a corpus‑level co‑occurrence graph using
-``rakhshai_graph_nlp.graphs.co_occurrence.build_cooccurrence_graph``, derive
-simple node features (e.g. one‑hot word vectors or TF‑IDF vectors),
-and then train a ``GCNClassifier``::
-
-    >>> from rakhshai_graph_nlp.graphs.co_occurrence import build_cooccurrence_graph
-    >>> from rakhshai_graph_nlp.tasks.classification import train_gcn_classifier
-    >>> docs = ["خبر سیاسی", "ورزش", "هنر"]
-    >>> labels = [0, 1, 2]  # example class indices
-    >>> # Tokenise and build graph
-    >>> from rakhshai_graph_nlp.features.tokenizer import tokenize
-    >>> tokenised = [tokenize(d) for d in docs]
-    >>> graph = build_cooccurrence_graph(tokenised)
-    >>> # Simple identity features for words
-    >>> import numpy as np
-    >>> X = np.eye(len(graph.nodes))
-    >>> clf, losses = train_gcn_classifier(graph, X, np.array(labels), hidden_dim=8, num_epochs=50)
-    >>> preds = clf.predict(graph, X)
-    >>> print(preds)
-
-This simplistic example illustrates how to set up the pipeline.  In
-practice, you will want to use richer features and possibly a corpus
-graph with both word and document nodes.
-"""
+"""Text classification tasks using PyTorch Geometric models."""
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Literal, Optional
 
 import numpy as np
+import torch
+from torch import nn
 
+from ..features.pyg_data import (
+    build_feature_matrix,
+    graph_to_data,
+    preprocess_persian_corpus,
+)
 from ..graphs.graph import Graph
+from ..models.gat import GATClassifier
 from ..models.gcn import GCNClassifier
+from ..models.graphsage import GraphSAGEClassifier
+
+MODEL_BUILDERS: dict[str, type[nn.Module]] = {
+    "gcn": GCNClassifier,
+    "graphsage": GraphSAGEClassifier,
+    "gat": GATClassifier,
+}
+
+
+def _select_device(device: str | torch.device) -> torch.device:
+    if isinstance(device, torch.device):
+        return device
+    if device == "cuda" and not torch.cuda.is_available():
+        return torch.device("cpu")
+    return torch.device(device)
+
+
+def _prepare_features(
+    graph: Graph,
+    X: Optional[np.ndarray | torch.Tensor],
+    texts: Optional[Sequence[str]],
+    *,
+    lemmatize: bool,
+    embedding_lookup: Optional[Mapping[str, Sequence[float]]],
+    use_gpu: bool,
+) -> np.ndarray | torch.Tensor:
+    if X is not None:
+        return X
+    if graph.node_features is not None:
+        return graph.node_features
+    if texts is not None:
+        tokens = preprocess_persian_corpus(texts, lemmatize=lemmatize, use_gpu=use_gpu)
+        return build_feature_matrix(tokens, embedding_lookup=embedding_lookup)
+    return np.eye(len(graph.nodes), dtype=float)
+
+
+def train_node_classifier(
+    graph: Graph,
+    labels: np.ndarray,
+    *,
+    X: Optional[np.ndarray | torch.Tensor] = None,
+    mask: Optional[np.ndarray] = None,
+    model_type: Literal["gcn", "graphsage", "gat"] = "gcn",
+    hidden_dim: int = 64,
+    num_epochs: int = 200,
+    learning_rate: float = 1e-3,
+    weight_decay: float = 5e-4,
+    dropout: float = 0.5,
+    texts: Optional[Sequence[str]] = None,
+    lemmatize: bool = False,
+    embedding_lookup: Optional[Mapping[str, Sequence[float]]] = None,
+    device: str | torch.device = "cpu",
+    gat_heads: int = 4,
+) -> tuple[nn.Module, list[float]]:
+    """Train a node classifier using PyTorch Geometric modules."""
+
+    if labels.shape[0] != len(graph.nodes):
+        raise ValueError("labels must match number of graph nodes")
+
+    device_t = _select_device(device)
+    features = _prepare_features(
+        graph,
+        X,
+        texts,
+        lemmatize=lemmatize,
+        embedding_lookup=embedding_lookup,
+        use_gpu=device_t.type == "cuda",
+    )
+    data = graph_to_data(graph, features=features, labels=labels)
+    data = data.to(device_t)
+
+    num_classes = int(labels.max()) + 1
+    input_dim = data.num_node_features
+
+    if model_type == "gat":
+        model = GATClassifier(input_dim, hidden_dim, num_classes, heads=gat_heads, dropout=dropout)
+    else:
+        model = MODEL_BUILDERS[model_type](input_dim, hidden_dim, num_classes, dropout=dropout)
+
+    model = model.to(device_t)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    criterion = nn.CrossEntropyLoss()
+
+    if mask is None:
+        train_mask = torch.ones(data.num_nodes, dtype=torch.bool, device=device_t)
+    else:
+        if mask.shape[0] != data.num_nodes:
+            raise ValueError("mask must match number of nodes")
+        train_mask = torch.as_tensor(mask, dtype=torch.bool, device=device_t)
+
+    losses: list[float] = []
+    for _ in range(num_epochs):
+        model.train()
+        optimizer.zero_grad()
+        logits = model(data)
+        loss = criterion(logits[train_mask], data.y[train_mask])
+        loss.backward()
+        optimizer.step()
+        losses.append(float(loss.item()))
+
+    return model, losses
 
 
 def train_gcn_classifier(
@@ -54,47 +129,21 @@ def train_gcn_classifier(
     num_epochs: int = 200,
     learning_rate: float = 0.01,
     weight_decay: float = 0.0,
-) -> Tuple[GCNClassifier, List[float]]:
-    """Train a two‑layer GCN classifier on a graph.
+    dropout: float = 0.5,
+    device: str | torch.device = "cpu",
+) -> tuple[nn.Module, list[float]]:
+    """Backward compatible wrapper for the classic ``train_gcn_classifier`` API."""
 
-    Parameters
-    ----------
-    graph : Graph
-        The input graph.
-    X : np.ndarray
-        Node feature matrix of shape ``(n_nodes, input_dim)``.
-    labels : np.ndarray
-        Ground truth class indices of shape ``(n_nodes,)``.
-    mask : np.ndarray, optional
-        Boolean array indicating which nodes to include in the training
-        loss. If ``None``, all nodes are used. This is useful for
-        semi‑supervised learning where only a subset of nodes have
-        labels.
-    hidden_dim : int, optional
-        Dimensionality of the hidden layer. Defaults to ``16``.
-    num_epochs : int, optional
-        Number of training epochs. Defaults to ``200``.
-    learning_rate : float, optional
-        Learning rate for gradient descent. Defaults to ``0.01``.
-    weight_decay : float, optional
-        Weight decay coefficient for L2 regularisation. Defaults to
-        ``0.0``.
-
-    Returns
-    -------
-    Tuple[GCNClassifier, List[float]]
-        The trained classifier and a list of loss values per epoch.
-    """
-    input_dim = X.shape[1]
-    num_classes = int(labels.max()) + 1
-    clf = GCNClassifier(input_dim, hidden_dim, num_classes)
-    losses = clf.fit(
+    return train_node_classifier(
         graph,
-        X,
         labels,
+        X=X,
         mask=mask,
+        model_type="gcn",
+        hidden_dim=hidden_dim,
         num_epochs=num_epochs,
         learning_rate=learning_rate,
         weight_decay=weight_decay,
+        dropout=dropout,
+        device=device,
     )
-    return clf, losses
