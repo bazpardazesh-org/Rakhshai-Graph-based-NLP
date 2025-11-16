@@ -19,7 +19,7 @@ TextGCN، GCN و GraphSAGE طراحی شده است تا بتوانید وظای
 ## ویژگی‌های برجسته
 
 - ساخت انواع گراف‌های متنی (هم‌رخدادی، TextGraph، گراف سند، وابستگی و معنایی).
-- مدل‌های گرافی GCN، GraphSAGE و نسخهٔ آزمایشی GAT.
+- مدل‌های گرافی GCN، GraphSAGE و GAT که همگی با PyTorch Geometric پیاده‌سازی شده‌اند و از GPU پشتیبانی می‌کنند.
 - وظایف آمادهٔ پژوهشی مانند طبقه‌بندی، خلاصه‌سازی، توصیه‌گر محتوا، تشخیص نفرت‌پراکنی و تحلیل شبکهٔ اجتماعی.
 - ابزارهای کمکی شامل توکنایزر، پیش‌پردازش متن، معیارهای ارزیابی و ماژول تبیین اولیه.
 - رابط خط فرمان `rgnn-cli` برای اجرای سریع آزمایش‌ها.
@@ -112,13 +112,13 @@ pip install -e .[docs]      # ساخت مستندات
 pytest
 ```
 
-برای اجرای یک آزمایش کوچک خط فرمان که یک مدل GCN ساده را اجرا کرده و دقت حاصل را چاپ می‌کند:
+برای اجرای یک آزمایش کوچک خط فرمان که یک مدل GCN ساده را اجرا کرده و دقت حاصل را چاپ می‌کند (با امکان انتخاب پردازنده یا GPU):
 
 ```bash
-rgnn-cli --model gcn
+rgnn-cli --model gcn --device cuda
 ```
 
-نمونهٔ خروجی این فرمان چیزی شبیه زیر خواهد بود:
+نمونهٔ خروجی این فرمان چیزی شبیه زیر خواهد بود (در صورت نبود GPU می‌توانید `--device cpu` را انتخاب کنید):
 
 ```
 INFO - model=gcn accuracy=0.333
@@ -135,7 +135,9 @@ INFO - model=gcn accuracy=0.333
 ```python
 import sys
 import numpy as np
+import torch
 sys.path.append('مسیر/به/پروژه')  # مسیر پوشهٔ rakhshai_graph_nlp
+from rakhshai_graph_nlp.features.pyg_data import graph_to_data
 from rakhshai_graph_nlp.features.tokenizer import tokenize
 from rakhshai_graph_nlp.graphs.text_graph import build_text_graph
 from rakhshai_graph_nlp.tasks.classification import train_gcn_classifier
@@ -161,10 +163,21 @@ mask[n_words:] = True
 all_labels = np.zeros(len(graph.nodes), dtype=int)
 all_labels[n_words:] = labels
 
-# آموزش مدل
-clf, losses = train_gcn_classifier(graph, X, all_labels, mask=mask, hidden_dim=8, num_epochs=100)
-# پیش‌بینی برای گره‌های سند
-preds = clf.predict(graph, X)[n_words:]
+# آموزش مدل روی GPU در صورت موجود بودن
+device = "cuda" if torch.cuda.is_available() else "cpu"
+clf, losses = train_gcn_classifier(
+    graph,
+    X,
+    all_labels,
+    mask=mask,
+    hidden_dim=8,
+    num_epochs=100,
+    device=device,
+)
+
+# ساخت دادهٔ PyG برای پیش‌بینی
+data = graph_to_data(graph, features=X, labels=all_labels).to(device)
+preds = clf.predict(data).cpu().numpy()[n_words:]
 print("پیش‌بینی دسته‌بندی اسناد:", preds)
 ```
 
