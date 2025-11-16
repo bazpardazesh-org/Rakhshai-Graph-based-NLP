@@ -1,42 +1,20 @@
-"""GraphSAGE implementation (simplified).
-
-GraphSAGE (SAmple and aggreGatE) is an inductive framework for
-generating node embeddings on large graphs by sampling and aggregating
-neighbourhood features【545116141011974†L20-L27】.  Unlike transductive
-embedding methods that learn a separate embedding for every node,
-GraphSAGE learns aggregator functions that can produce embeddings for
-previously unseen nodes【545116141011974†L20-L27】.  This makes it
-particularly suitable for dynamic graphs such as social networks.
-
-The implementation below provides a simple mean aggregator layer and a
-GraphSAGE model composed of multiple such layers.  Sampling is
-controlled by the ``num_samples`` parameter which determines how many
-neighbours are sampled at each layer.  For small graphs you can set
-``num_samples=None`` to aggregate over all neighbours.
-"""
+"""GraphSAGE implementations."""
 
 from __future__ import annotations
 
 from typing import List, Optional
 
 import numpy as np
+import torch
+from torch import nn
+from torch_geometric.data import Data
+from torch_geometric.nn import SAGEConv
 
 from ..graphs.graph import Graph
 
 
 class GraphSAGELayer:
-    """A single GraphSAGE aggregation layer using mean aggregator.
-
-    Parameters
-    ----------
-    in_dim : int
-        Dimensionality of input node features.
-    out_dim : int
-        Dimensionality of output node features.
-    num_samples : Optional[int], optional
-        Number of neighbours to sample for each node. If ``None``, all
-        neighbours are used. Defaults to ``None``.
-    """
+    """A single GraphSAGE aggregation layer using mean aggregator."""
 
     def __init__(
         self,
@@ -49,7 +27,6 @@ class GraphSAGELayer:
         self.out_dim = out_dim
         self.num_samples = num_samples
         rng = rng or np.random.default_rng()
-        # Weight matrices for self and neighbours
         limit = np.sqrt(6 / (in_dim + out_dim))
         self.W_self = rng.uniform(-limit, limit, size=(in_dim, out_dim))
         self.W_neigh = rng.uniform(-limit, limit, size=(in_dim, out_dim))
@@ -61,14 +38,11 @@ class GraphSAGELayer:
         adjacency = graph.adjacency
         n = X.shape[0]
         if self.num_samples is None:
-            # Vectorised mean aggregation over all neighbours
             degrees = adjacency.sum(axis=1, keepdims=True)
-            # Avoid division by zero
             degrees = np.where(degrees > 0, degrees, 1)
             mean_neigh = (adjacency @ X) / degrees
             return (X @ self.W_self) + (mean_neigh @ self.W_neigh)
 
-        # Sampling-based aggregation for large graphs
         H = np.zeros((n, self.out_dim))
         for i in range(n):
             neighbours = np.where(adjacency[i] > 0)[0].tolist()
@@ -87,22 +61,7 @@ class GraphSAGELayer:
 
 
 class GraphSAGE:
-    """A multi‑layer GraphSAGE model.
-
-    Parameters
-    ----------
-    input_dim : int
-        Dimensionality of the input features.
-    hidden_dims : List[int]
-        List of hidden layer dimensions. The last element gives the
-        output embedding dimension.
-    num_samples : Optional[int], optional
-        Number of neighbours to sample at each layer. Defaults to
-        ``None`` (use all neighbours).
-    activation : callable, optional
-        Activation function applied after each layer except the last.
-        Defaults to ReLU.
-    """
+    """A multi-layer GraphSAGE model for embedding extraction."""
 
     def __init__(
         self,
@@ -129,30 +88,32 @@ class GraphSAGE:
         return h
 
 
-class GraphSAGEClassifier:
-    """Minimal GraphSAGE-based classifier."""
+class GraphSAGEClassifier(nn.Module):
+    """Two-layer GraphSAGE classifier for node prediction."""
 
     def __init__(
         self,
         input_dim: int,
         hidden_dim: int,
         num_classes: int,
-        rng: Optional[np.random.Generator] = None,
+        *,
+        dropout: float = 0.5,
     ):
-        self.model = GraphSAGE(input_dim, [hidden_dim, num_classes], rng=rng)
+        super().__init__()
+        self.conv1 = SAGEConv(input_dim, hidden_dim)
+        self.conv2 = SAGEConv(hidden_dim, num_classes)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, graph: Graph, X: np.ndarray) -> np.ndarray:
-        return self.model.forward(graph, X)
+    def forward(self, data: Data) -> torch.Tensor:
+        x, edge_index = data.x, data.edge_index
+        x = self.conv1(x, edge_index)
+        x = torch.relu(x)
+        x = self.dropout(x)
+        x = self.conv2(x, edge_index)
+        return x
 
-    def predict(self, graph: Graph, X: np.ndarray) -> np.ndarray:
-        return self.forward(graph, X).argmax(axis=1)
-
-    def fit(
-        self,
-        graph: Graph,
-        X: np.ndarray,
-        labels: np.ndarray,
-        num_epochs: int = 1,
-        learning_rate: float = 0.01,
-    ):
-        return []
+    @torch.no_grad()
+    def predict(self, data: Data) -> torch.Tensor:
+        self.eval()
+        logits = self(data)
+        return torch.softmax(logits, dim=-1).argmax(dim=-1)
