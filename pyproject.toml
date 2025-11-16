@@ -10,8 +10,14 @@ readme = "README.md"
 license = {file = "LICENSE"}
 authors = [{name = "Unknown"}]
 requires-python = ">=3.9"
-dependencies = ["numpy", "scipy", "regex", "networkx"]
-
+dependencies = [
+    "numpy",
+    "scipy",
+    "regex",
+    "networkx",
+    "torch",
+    "torch-geometric",
+]
 [project.optional-dependencies]
 sparse = ["scipy"]
 ml = ["scikit-learn"]
