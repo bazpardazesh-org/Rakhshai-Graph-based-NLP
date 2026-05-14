@@ -1,28 +1,75 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "rakhshai-graph-nlp"
-version = "0.1.0"
-description = "Graph-based NLP utilities"
+version = "1.0.0"
+description = "Graph-based NLP utilities for Persian text"
 readme = "README.md"
 license = {file = "LICENSE"}
-authors = [{name = "Unknown"}]
+authors = [{name = "RakhshAI Team"}]
 requires-python = ">=3.9"
 dependencies = [
-    "numpy",
-    "scipy",
-    "regex",
-    "networkx",
-    "torch",
-    "torch-geometric",
+    "numpy>=1.23",
+    "scipy>=1.9",
+    "regex>=2023.0.0",
+    "networkx>=3.0",
+    "torch>=2.0",
+    "torch-geometric>=2.3",
 ]
+
+keywords = [
+    "persian",
+    "farsi",
+    "nlp",
+    "graph-neural-networks",
+    "text-classification",
+    "pytorch-geometric",
+]
+
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: Persian",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Linguistic",
+]
+
 [project.optional-dependencies]
-sparse = ["scipy"]
-ml = ["scikit-learn"]
-fa = ["faiss-cpu"]
-docs = ["mkdocs", "mkdocstrings-python"]
+ml = ["scikit-learn>=1.2"]
+nlp = ["stanza>=1.6"]
+fa = ["faiss-cpu>=1.7.4"]
+docs = ["mkdocs>=1.5", "mkdocstrings-python>=1.7"]
+test = ["pytest>=7.0"]
+all = [
+    "faiss-cpu>=1.7.4",
+    "scikit-learn>=1.2",
+    "stanza>=1.6",
+]
+dev = [
+    "build>=1.0",
+    "mypy>=1.8",
+    "pytest>=7.0",
+    "ruff>=0.4",
+    "twine>=5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP"
+Documentation = "https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP#readme"
+Repository = "https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP"
+Issues = "https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/issues"
 
 [project.scripts]
 rgnn-cli = "rakhshai_graph_nlp.cli:main"
