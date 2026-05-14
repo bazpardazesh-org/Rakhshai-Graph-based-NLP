@@ -27,9 +27,8 @@ The primary entry points are:
   【534291576090157†L11-L33】.
 
 * :func:`rakhshai_graph_nlp.graphs.semantic.build_semantic_graph` – Construct
-  a semantic graph from a list of words using an optional mapping of
-  semantic relations (for example synonyms). This offers a lightweight
-  alternative until a comprehensive Persian WordNet becomes available.
+  a semantic graph from a list of words using lexical relations, FarsNet-style
+  exports or embedding similarity.
 
 See the individual modules for further details and usage examples.
 """
@@ -40,7 +39,11 @@ from .graph import Graph
 from .co_occurrence import build_cooccurrence_graph  # noqa: F401
 from .document import build_document_graph  # noqa: F401
 from .dependency import build_dependency_graph  # noqa: F401
-from .semantic import build_semantic_graph  # noqa: F401
+from .semantic import (  # noqa: F401
+    build_semantic_graph,
+    build_semantic_graph_from_farsnet,
+    load_farsnet_relations,
+)
 from .text_graph import build_text_graph  # noqa: F401
 
 __all__ = ["Graph"]

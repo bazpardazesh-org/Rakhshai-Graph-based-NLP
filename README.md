@@ -1,407 +1,608 @@
-# Rakhshai Graph-based NLP for Persian – کتابخانهٔ پردازش زبان طبیعی مبتنی بر گراف برای زبان فارسی
+# Rakhshai Graph-based NLP for Persian
 
 [![CI](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml)
 
+**Rakhshai Graph-based NLP** یک کتابخانه کاربردی برای پردازش زبان فارسی با
+نگاه گرافی است. این پروژه متن فارسی را به گراف تبدیل می‌کند، رابطهٔ واژه‌ها
+و سندها را مدل می‌کند و سپس با مدل‌هایی مثل GCN، GraphSAGE و GAT روی آن
+طبقه‌بندی، خلاصه‌سازی، توصیه‌گر محتوا و تحلیل‌های متنی انجام می‌دهد.
 
-For documentation visit [docs/](docs/index.md).
+اگر دنبال یک ابزار فارسی‌محور برای ساخت pipelineهای NLP مبتنی بر گراف هستید،
+این پروژه تلاش می‌کند مسیر را کوتاه کند: از متن خام فارسی تا ساخت گراف،
+آموزش مدل، ارزیابی، پیش‌بینی روی متن جدید و ذخیره/بارگذاری مدل.
 
-کتابخانهٔ **Rakhshai Graph-based NLP** یک کتابخانهٔ پژوهشی است که به شما کمک می‌کند متن‌های
-فارسی را به ساختارهای گرافی تبدیل کنید و سپس با الگوریتم‌های
-گرافی آن‌ها را تحلیل نمایید. این ابزار با الهام از مدل‌های
-TextGCN، GCN و GraphSAGE طراحی شده است تا بتوانید وظایف مختلفی
-مانند طبقه‌بندی متن، خلاصه‌سازی، توصیه‌گر محتوا، تشخیص نفرت‌پراکنی و
-تحلیل شبکه‌های اجتماعی را با استفاده از گراف‌های کلمات و اسناد
-انجام دهید. در این مستند تلاش کرده‌ایم همهٔ بخش‌های پروژه را
-معرفی کنیم و مثال‌هایی برای آزمایش هر قسمت ارائه دهیم.
-- این نسخه غیرتجاری توسط تیم توسعه [RakhshAI](https://rakhshai.com/) وابسته به شرکت آریا هامان مهر پارسه ایجاد و توسعه داده شده است.
+این نسخه غیرتجاری توسط تیم توسعه [RakhshAI](https://rakhshai.com/) وابسته به
+شرکت آریا هامان مهر پارسه ایجاد و توسعه داده شده است.
 
-## نصب و آزمایش سریع
+## ویژگی‌های برجسته به زبان ساده
 
-برای نصب و آزمایش سریع این پروژه، یا مشاهده یک مثال ساده، به راهنمای زیر مراجعه کنید:
-
-[آموزش نصب سریع رخشای گراف NLP](https://rakhshai.com/news/install-rakhshai-graph-nlp/)
-
-## ویژگی‌های برجسته
-
-- ساخت انواع گراف‌های متنی (هم‌رخدادی، TextGraph، گراف سند، وابستگی و معنایی).
-- مدل‌های گرافی GCN، GraphSAGE و GAT که همگی با PyTorch Geometric پیاده‌سازی شده‌اند و از GPU پشتیبانی می‌کنند.
-- وظایف آمادهٔ پژوهشی مانند طبقه‌بندی، خلاصه‌سازی، توصیه‌گر محتوا، تشخیص نفرت‌پراکنی و تحلیل شبکهٔ اجتماعی.
-- ابزارهای کمکی شامل توکنایزر، پیش‌پردازش متن، معیارهای ارزیابی و ماژول تبیین اولیه.
-- رابط خط فرمان `rgnn-cli` برای اجرای سریع آزمایش‌ها و آموزش/ارزیابی روی دیتاست واقعی.
-- مستندات کامل در پوشهٔ `docs/` و مجموعهٔ تست‌ها برای اطمینان از صحت عملکرد.
+- **فارسی‌محور از ابتدا:** مثال‌ها، توکن‌سازی، پیش‌پردازش و کاربردها با متن
+  فارسی طراحی شده‌اند.
+- **طبقه‌بندی متن آماده استفاده:** با `TextGraphClassifier` می‌توانید متن و
+  برچسب بدهید، مدل آموزش دهید، ارزیابی کنید و روی متن جدید خروجی بگیرید.
+- **ذخیره کامل مدل و pipeline:** فقط وزن مدل ذخیره نمی‌شود؛ واژگان، نگاشت
+  برچسب‌ها و تنظیمات graph هم همراه مدل ذخیره می‌شوند.
+- **پشتیبانی از GPU برای مدل‌های گرافی:** اگر CUDA و کارت NVIDIA داشته باشید،
+  مسیرهای PyTorch Geometric می‌توانند روی GPU اجرا شوند.
+- **چند نوع گراف برای متن فارسی:** هم‌رخدادی واژه‌ها، گراف واژه-سند،
+  شباهت اسناد، وابستگی نحوی و گراف معنایی با پشتیبانی از FarsNet.
+- **چند وظیفه آماده:** طبقه‌بندی، خلاصه‌سازی، توصیه‌گر محتوا، تشخیص
+  نفرت‌پراکنی و تحلیل شبکه.
+- **رابط خط فرمان:** با `rgnn-cli` می‌توانید بدون نوشتن کد زیاد، روی فایل
+  CSV/TSV/JSONL آموزش و ارزیابی انجام دهید.
 
 ## چرا گراف؟
 
-روش‌های مبتنی بر گراف اجازه می‌دهند ساختارهای جهانی و محلی را که
-در دادهٔ متنی وجود دارد به‌طور همزمان مدل کنیم. به عنوان نمونه،
-الگوریتم TextGCN اسناد و کلمات را گره‌های یک گراف در نظر می‌گیرد و
-وزن edges را براساس هم‌رخدادی (PMI) و TF‑IDF تعیین می‌کند؛ سپس
-یک شبکهٔ عصبی گرافی (GCN) بر روی این گراف آموزش می‌بیند تا
-برچسب‌های اسناد را پیش‌بینی کند. در
-مدل GraphSAGE نیز به‌جای ذخیرهٔ یک embedding ثابت برای هر گره،
-تابعی یادگیری می‌شود که با نمونه‌گیری و تجمیع ویژگی‌های
-همسایگی، embedding گره‌های دیده‌نشده را نیز تولید می‌کند.
+متن فقط یک دنباله از کلمات نیست. در فارسی، رابطهٔ واژه‌ها، هم‌رخدادی‌ها،
+وابستگی‌های نحوی، شباهت سندها و اتصال بین مفهوم‌ها اهمیت زیادی دارد. گراف
+کمک می‌کند این رابطه‌ها را واضح‌تر ببینیم و به مدل بدهیم.
+
+در رویکرد TextGCN، کلمات و سندها به گره‌های یک گراف تبدیل می‌شوند. رابطهٔ
+کلمه با کلمه می‌تواند با PMI ساخته شود و رابطهٔ کلمه با سند با TF-IDF وزن
+بگیرد. بعد مدل گرافی مثل GCN یا GAT اطلاعات را روی این شبکه پخش می‌کند و
+برای گره‌های سند برچسب پیش‌بینی می‌کند.
+
+به زبان ساده: به جای اینکه هر متن را جدا ببینیم، کل مجموعهٔ متن‌ها را مثل
+یک شبکه می‌بینیم. این برای زبان فارسی جذاب است، چون معنی و نقش کلمات خیلی
+وقت‌ها از رابطه‌شان با کلمات اطراف و سندهای دیگر روشن‌تر می‌شود.
 
 ## مؤلفه‌های اصلی
 
-### ۱. ماژول‌های ساخت گراف
+| مؤلفه | توضیح |
+| --- | --- |
+| `TextGraphClassifier` | کلاس اصلی برای آموزش، ارزیابی، پیش‌بینی، ذخیره و بارگذاری مدل طبقه‌بندی متن |
+| `build_text_graph` | ساخت گراف واژه-سند با PMI و TF-IDF برای TextGCN |
+| `build_cooccurrence_graph` | ساخت گراف هم‌رخدادی واژه‌ها در پنجرهٔ لغتی |
+| `build_document_graph` | ساخت گراف شباهت سندها با TF-IDF یا embedding |
+| `build_dependency_graph` | ساخت گراف وابستگی نحوی با Stanza |
+| `build_semantic_graph` | ساخت گراف معنایی از روابط واژگانی و شباهت embedding |
+| `build_semantic_graph_from_farsnet` | ساخت گراف معنایی از خروجی JSON/CSV/TSV مربوط به FarsNet |
+| `load_farsnet_relations` | خواندن روابط FarsNet از فایل و تبدیل آن به روابط قابل استفاده در گراف |
+| `GCNClassifier` | مدل GCN برای طبقه‌بندی گره‌ها |
+| `GraphSAGEClassifier` | مدل GraphSAGE برای یادگیری از ساختار همسایگی |
+| `GATClassifier` | مدل GAT با مکانیزم attention روی گراف |
+| `rgnn-cli` | ابزار خط فرمان برای آموزش و ارزیابی سریع |
 
-این بسته چندین تابع برای ساخت انواع گراف‌ متن فراهم می‌کند. هر
-کدام برای کاربردی خاص مناسب است:
+## وظایف تحلیلی
 
-| ماژول | توضیح کوتاه |
-|------|-------------|
-| **`build_cooccurrence_graph`** | از یک فهرست اسناد توکن‌شده، گراف هم‌رخدادی می‌سازد. گره‌ها کلمات هستند و وزن edges تعداد دفعات هم‌رخدادی در یک پنجرهٔ لغتی است. این روش زیرساخت بسیاری از مدل‌های گرافی است و می‌توان آن را برای استخراج کلمات کلیدی یا بررسی همبستگی‌ها به کار برد. |
-| **`build_text_graph`** | یک گراف دو-بخشی شامل گره‌های کلمه و سند تولید می‌کند. وزن edgesی کلمه–کلمه با شاخص PMI محاسبه می‌شود و edgesی کلمه–سند بر اساس TF‑IDF تعریف می‌شوند. این ساختار برای طبقه‌بندی اسناد با GCN بسیار مناسب است. |
-| **`build_document_graph`** | شباهت بین اسناد را با استفاده از بردارهای TF‑IDF یا embedding از پیش‌محاسبه‌شده می‌سنجد و گرافی ایجاد می‌کند که در آن گره‌ها اسناد و وزن edges میزان شباهت کسینوسی هستند. این گراف می‌تواند برای توصیه‌گرها یا خوشه‌بندی به کار رود. |
-| **`build_dependency_graph`** | با استفاده از تحلیل وابستگی (dependency parsing) در کتابخانهٔ [Stanza](https://stanfordnlp.github.io/stanza/)، ساختار نحوی جملات استخراج می‌شود و بین کلمات edgesیی بر اساس رابطهٔ دستوری آن‌ها ایجاد می‌گردد. Stanza یک بستهٔ کامل است که متن را به جملات و کلمات تقسیم می‌کند، نقش دستوری و ویژگی‌های صرفی را تعیین می‌کند و تجزیهٔ نحوی و تشخیص موجودیت نام‌دار را انجام می‌دهد. |
-| **`build_semantic_graph`** | این ماژول (فعلاً) گراف معنایی تهی بازمی‌گرداند. هدف آن در آینده استفاده از پایگاه‌های واژگانی مانند WordNet است که واژه‌ها را در مجموعه‌های هم‌معنا گروه‌بندی می‌کند و روابط معنایی میان آن‌ها را ذخیره می‌نماید. در حال حاضر WordNet فارسی کامل وجود ندارد، اما ساختار این تابع آمادهٔ توسعه است. |
+- **طبقه‌بندی متن فارسی:** دسته‌بندی خبر، پیام، نظر کاربر، محتوای شبکه
+  اجتماعی یا هر متن برچسب‌دار دیگر.
+- **خلاصه‌سازی استخراجی:** انتخاب جمله‌های مهم با `textrank_summarise` یا
+  رتبه‌بند GATمحور `gat_summarise`.
+- **توصیه‌گر محتوا:** پیدا کردن سندهای نزدیک به یک متن یا پرس‌وجو با
+  `recommend_similar`.
+- **تشخیص نفرت‌پراکنی:** کنترل سریع واژه‌محور با `contains_hate_speech` و
+  مدل قابل آموزش با `HateSpeechDetector`.
+- **تحلیل شبکه:** ساخت embedding برای گره‌ها با GraphSAGE و استفاده در
+  خوشه‌بندی، تحلیل ارتباط‌ها یا تحلیل نفوذ.
+- **گراف معنایی فارسی:** اتصال واژه‌های مرتبط با FarsNet، روابط دستی،
+  synonymها یا embeddingهای فارسی.
 
-### ۲. ماژول‌های مدل‌سازی
+## پشتیبانی از GPU
 
-پس از ساخت گراف، برای استخراج الگوها می‌توان از مدل‌های مختلف استفاده کرد:
+پروژه برای مدل‌های گرافی مبتنی بر PyTorch Geometric از GPU پشتیبانی می‌کند.
+یعنی اگر سیستم شما کارت گرافیک NVIDIA، درایور مناسب و نسخه CUDA-compatible
+از PyTorch داشته باشد، می‌توانید آموزش GCN، GraphSAGE و GAT را روی GPU اجرا
+کنید.
 
-- **Graph Convolutional Network (GCN):** یک شبکهٔ دولایه که با استفاده از ماتریس مجاورت نرمال‌شده، ویژگی‌های گره‌ها را منتشر می‌کند و سپس با یک تابع غیرخطی (ReLU) و یک لایهٔ نهایی softmax، برچسب هر گره را پیش‌بینی می‌کند. این مدل برای طبقه‌بندی گره‌ها در گراف‌های ثابت به کار می‌رود.
+مسیرهای GPU شامل این بخش‌ها هستند:
 
-- **GraphSAGE:** چارچوبی برای یادگیری استقرایی که از نمونه‌گیری و تجمیع ویژگی‌های همسایگان برای تولید embedding استفاده می‌کند. این روش قادر است برای گره‌های جدید (که در زمان آموزش دیده نشده‌اند) نیز embedding بسازد.
+- `TextGraphClassifier(..., device="cuda")`
+- `train_node_classifier(..., device="cuda")`
+- `train_gcn_classifier(..., device="cuda")`
+- اجرای CLI با `--device cuda`
 
-- **Graph Attention Network (GAT) – نسخهٔ آزمایشی:** پیاده‌سازی اولیهٔ یک لایهٔ GAT برای استفاده‌های آینده (مثلاً خلاصه‌سازی مبتنی بر توجه). هنوز مدل کامل خلاصه‌سازی با GAT در این نسخه ارائه نشده است.
+نمونه استفاده در Python:
 
-### ۳. وظایف تحلیلی
+```python
+from rakhshai_graph_nlp import TextGraphClassifier
 
-- **طبقه‌بندی متن:** با استفاده از `build_text_graph` می‌توانید یک گراف شامل کلمات و اسناد بسازید و سپس با `train_gcn_classifier` یک مدل GCN آموزش دهید تا اسناد را در دسته‌بندی‌های مختلف قرار دهد. مثال کامل در ادامه آمده است.
+clf = TextGraphClassifier(model="gcn", device="cuda", num_epochs=50)
+clf.fit(texts, labels)
+print(clf.predict(["تیم فوتبال امروز تمرین کرد"]))
+```
 
-- **خلاصه‌سازی:** الگوریتم TextRank جملات را به‌صورت گره‌های یک گراف در نظر می‌گیرد و با اجرای PageRank، مهم‌ترین جملات را انتخاب می‌کند. ماژول `textrank_summarise` متن فارسی را به جملات تقسیم می‌کند، گراف شباهت جملات می‌سازد و سپس با PageRank مهم‌ترین جملات را استخراج می‌کند.
+نمونه استفاده در CLI:
 
-- **توصیه‌گر محتوا:** `recommend_similar` با ساختن گراف شباهت اسناد، نزدیک‌ترین اسناد به یک پرسش یا سند جدید را برمی‌گرداند. این کار با محاسبهٔ TF‑IDF و شباهت کسینوسی انجام می‌شود.
+```bash
+rgnn-cli \
+  --dataset benchmarks/persian_text_classification.csv \
+  --model gcn \
+  --device cuda \
+  --epochs 50 \
+  --output-dir runs/news-gcn-gpu
+```
 
-- **تشخیص نفرت‌پراکنی:** `contains_hate_speech` یک پیاده‌سازی ساده و ابتدایی برای شناسایی وجود عبارات نفرت‌انگیز در متن است. برای کاربردهای جدی باید داده‌های برچسب‌خورده جمع‌آوری و یک مدل گرافی قدرتمند آموزش داده شود.
+اگر CUDA در دسترس نباشد، مسیر CLI به CPU برمی‌گردد تا اجرا متوقف نشود. برای
+بررسی CUDA در محیط خودتان:
 
-- **تحلیل شبکه‌های اجتماعی:** `compute_social_embeddings` با استفاده از GraphSAGE embedding گره‌ها را بر اساس ساختار شبکه تولید می‌کند. این embedding می‌تواند برای خوشه‌بندی کاربران، پیش‌بینی لینک یا تحلیل نفوذ استفاده شود.
+```bash
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+نکته مهم: الگوریتم‌هایی مثل TextRank، توصیه‌گر TF-IDF و بعضی ابزارهای NumPy
+محور ذاتاً CPUمحور هستند. GPU بیشترین اثر را در آموزش مدل‌های GNN و اجرای
+مدل‌های PyTorch/PyG نشان می‌دهد.
+
+## نصب به زبان ساده
+
+پیشنهاد می‌شود داخل یک virtual environment نصب کنید.
+
+### macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[ml]"
+```
+
+در بیشتر مک‌ها اجرای پروژه روی CPU انجام می‌شود. اگر روی مک Apple Silicon
+کار می‌کنید، بخش‌های PyTorch ممکن است از شتاب‌دهنده‌های خود PyTorch استفاده
+کنند، اما مسیر رسمی CLI این پروژه برای GPU فعلاً روی `cuda` متمرکز است.
+
+### Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[ml]"
+```
+
+برای GPU روی Linux، اول PyTorch سازگار با CUDA سیستم خودتان را نصب کنید و
+بعد پروژه را نصب کنید:
+
+```bash
+python -c "import torch; print(torch.cuda.is_available())"
+rgnn-cli --model gcn --device cuda
+```
+
+### Windows PowerShell
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[ml]"
+```
+
+برای GPU روی Windows هم باید NVIDIA Driver و نسخه CUDA-compatible از PyTorch
+درست نصب شده باشد:
+
+```powershell
+python -c "import torch; print(torch.cuda.is_available())"
+rgnn-cli --model gcn --device cuda
+```
+
+### افزودنی‌های اختیاری
+
+```bash
+python -m pip install -e ".[sparse]"  # ابزارهای گراف تنک
+python -m pip install -e ".[fa]"      # پشتیبانی Faiss
+python -m pip install -e ".[docs]"    # ابزار ساخت مستندات
+```
+
+### اجرای تست‌ها
+
+```bash
+python -m pip install pytest
+python -m pytest
+```
+
+## شروع سریع
+
+```python
+from rakhshai_graph_nlp import TextGraphClassifier
+
+texts = [
+    "انتخابات و دولت و مجلس",
+    "قانون و نمایندگان مجلس",
+    "فوتبال و تیم ملی",
+    "گل و مسابقه فوتبال",
+]
+labels = ["politics", "politics", "sports", "sports"]
+
+clf = TextGraphClassifier(model="gcn", num_epochs=20)
+clf.fit(texts, labels)
+
+print(clf.evaluate(texts, labels))
+print(clf.predict(["تیم فوتبال امروز تمرین کرد"]))
+
+clf.save("runs/news-textgraph")
+
+loaded = TextGraphClassifier.load("runs/news-textgraph")
+print(loaded.predict(["مجلس درباره قانون جدید بحث کرد"]))
+```
+
+## رابط خط فرمان
+
+ابزار `rgnn-cli` برای اجرای سریع مسیر طبقه‌بندی متن فارسی مبتنی بر گراف است.
+اگر `--dataset` ندهید، یک آزمایش داخلی کوچک اجرا می‌شود تا نصب و مدل پایه
+را smoke test کنید. اگر دیتاست بدهید، CLI متن‌ها را می‌خواند، گراف واژه-سند
+می‌سازد، یکی از مدل‌های `gcn`، `graphsage` یا `gat` را آموزش می‌دهد و
+گزارش train/validation/test می‌نویسد.
+
+اجرای آزمایش داخلی کوچک:
+
+```bash
+rgnn-cli --model gcn --device cpu
+```
+
+اجرای pipeline روی دیتاست دارای ستون‌های `text` و `label`:
+
+```bash
+rgnn-cli \
+  --dataset benchmarks/persian_text_classification.csv \
+  --text-column text \
+  --label-column label \
+  --model gcn \
+  --epochs 50 \
+  --device cpu \
+  --output-dir runs/news-gcn \
+  --save-model runs/news-gcn/model.pt
+```
+
+اجرای همان مسیر روی GPU:
+
+```bash
+rgnn-cli \
+  --dataset benchmarks/persian_text_classification.csv \
+  --model gat \
+  --device cuda \
+  --epochs 50 \
+  --output-dir runs/news-gat-gpu
+```
+
+ورودی دیتاست می‌تواند CSV، TSV یا JSONL باشد. به صورت پیش‌فرض ستون‌های
+`text` و `label` خوانده می‌شوند، اما می‌توانید نام ستون‌ها را تغییر دهید:
+
+```bash
+rgnn-cli \
+  --dataset data/comments.jsonl \
+  --dataset-format jsonl \
+  --text-column comment \
+  --label-column sentiment \
+  --model graphsage \
+  --output-dir runs/comments-graphsage
+```
+
+همه گزینه‌ها را می‌توانید از فایل JSON هم بدهید؛ کلیدهای فایل همان نام
+گزینه‌ها بدون `--` و با underscore هستند:
+
+```json
+{
+  "dataset": "benchmarks/persian_text_classification.csv",
+  "model": "gat",
+  "epochs": 50,
+  "hidden_dim": 16,
+  "learning_rate": 0.005,
+  "dropout": 0.3,
+  "device": "cpu",
+  "output_dir": "runs/news-gat"
+}
+```
+
+```bash
+rgnn-cli --config config.json
+```
+
+خروجی اجرا به طور پیش‌فرض در `OUTPUT_DIR/metrics.json` ذخیره می‌شود و شامل
+نام دیتاست، مدل، دستگاه اجرا، نگاشت برچسب‌ها، اندازه splitها، accuracy و
+macro-F1 برای train/validation/test و loss نهایی است. با `--report-path`
+می‌توانید مسیر گزارش را دقیق تعیین کنید. با `--save-model` هم checkpoint
+PyTorch مدل، نوع مدل، ابعاد، نگاشت برچسب‌ها و متریک‌ها ذخیره می‌شود؛ برای
+pipeline سطح بالا و ذخیره/بارگذاری کامل‌تر، از `TextGraphClassifier.save`
+در API پایتون استفاده کنید.
+
+گزینه‌های مهم CLI:
+
+| گزینه | کاربرد |
+| --- | --- |
+| `--dataset` | اجرای مسیر واقعی آموزش/ارزیابی روی CSV، TSV یا JSONL |
+| `--dataset-format` | تعیین فرمت ورودی؛ مقدار `auto` از پسوند فایل تشخیص می‌دهد |
+| `--text-column` و `--label-column` | نام فیلد متن و برچسب در دیتاست |
+| `--train-ratio`، `--val-ratio`، `--test-ratio` | نسبت splitهای آموزش، اعتبارسنجی و آزمون |
+| `--model` | انتخاب معماری بین `gcn`، `graphsage` و `gat` |
+| `--epochs`، `--hidden-dim`، `--learning-rate`، `--weight-decay`، `--dropout` | تنظیمات آموزش مدل |
+| `--gat-heads` | تعداد attention headها برای مدل `gat` |
+| `--window-size` و `--min-count` | کنترل ساخت گراف متن با پنجره هم‌رخدادی و حداقل فراوانی واژه |
+| `--device` | اجرای CPU یا CUDA؛ اگر CUDA در دسترس نباشد، CLI به CPU برمی‌گردد |
+| `--output-dir` و `--report-path` | مسیر ذخیره گزارش اجرا |
+| `--save-model` | ذخیره checkpoint مدل آموزش‌دیده |
+| `--config` | خواندن همین گزینه‌ها از فایل JSON |
+| `--log-level` و `--log-to` | کنترل log و اتصال اختیاری به `wandb` یا `mlflow` در آزمایش داخلی |
+
+برای دیدن فهرست کامل گزینه‌ها:
+
+```bash
+rgnn-cli --help
+```
+
+## مثال‌های کاربردی
+
+### خلاصه‌سازی
+
+```python
+from rakhshai_graph_nlp.tasks.summarization import (
+    gat_summarise,
+    textrank_summarise,
+)
+
+text = (
+    "هوش مصنوعی در سال‌های اخیر رشد زیادی داشته است. "
+    "بسیاری از شرکت‌ها از مدل‌های زبانی برای تحلیل متن استفاده می‌کنند. "
+    "در زبان فارسی هم ابزارهای NLP در حال بهتر شدن هستند."
+)
+
+print(textrank_summarise(text, top_k=2))
+print(gat_summarise(text, top_k=2))
+```
+
+### توصیه‌گر محتوا
+
+```python
+from rakhshai_graph_nlp.tasks.recommendation import recommend_similar
+
+query = "این نمایشگاه جذاب است."
+docs = [
+    "این یک خبر سیاسی است و درباره انتخابات صحبت می‌کند.",
+    "تیم فوتبال امروز بازی مهمی دارد.",
+    "نمایشگاه جدید هنری با آثار نقاشان جوان افتتاح شد.",
+]
+
+print(recommend_similar(query, docs, top_k=2))
+```
+
+### تشخیص نفرت‌پراکنی
+
+```python
+from rakhshai_graph_nlp.tasks.hate_speech import (
+    HateSpeechDetector,
+    contains_hate_speech,
+)
+
+hate_terms = ["نفرت", "لعنت"]
+print(contains_hate_speech("این پیام حاوی نفرت است", hate_terms))
+
+texts = [
+    "متن آرام و محترمانه",
+    "گفتگوی خوب و عادی",
+    "توهین بد و نفرت",
+    "پیام بد و سمی",
+]
+labels = [False, False, True, True]
+
+detector = HateSpeechDetector(num_epochs=20)
+detector.fit(texts, labels)
+print(detector.predict(["پیام حاوی نفرت"]))
+detector.save("runs/hate-detector")
+```
+
+### گراف معنایی
+
+```python
+from rakhshai_graph_nlp.graphs.semantic import build_semantic_graph
+
+words = ["گربه", "سگ", "ماشین"]
+relations = {"گربه": ["سگ"]}
+embeddings = {
+    "گربه": [1.0, 0.0],
+    "سگ": [0.9, 0.1],
+    "ماشین": [0.0, 1.0],
+}
+
+graph = build_semantic_graph(
+    words,
+    relations=relations,
+    embedding_lookup=embeddings,
+    similarity_threshold=0.8,
+)
+print(graph.adjacency)
+```
+
+### گراف معنایی با FarsNet
+
+FarsNet، WordNet فارسی است و می‌تواند منبع قوی‌تری برای ساخت رابطه‌های
+معنایی بین واژه‌های فارسی باشد. به دلیل مسائل دسترسی و لایسنس، دیتابیس
+FarsNet داخل این مخزن کپی نشده است؛ اما پروژه loader آماده دارد تا اگر خروجی
+FarsNet را به شکل JSON/CSV/TSV داشته باشید، مستقیم از آن گراف معنایی بسازد.
+
+نمونه JSON قابل استفاده:
+
+```json
+{
+  "synsets": [
+    {"id": "s1", "lemmas": ["ماشین", "خودرو", "اتومبیل"]},
+    {"id": "s2", "lemmas": ["پزشک", "دکتر"]}
+  ]
+}
+```
+
+استفاده در پروژه:
+
+```python
+from rakhshai_graph_nlp.graphs.semantic import (
+    build_semantic_graph_from_farsnet,
+)
+
+words = ["ماشین", "خودرو", "پزشک", "دکتر"]
+
+graph = build_semantic_graph_from_farsnet(
+    words,
+    farsnet_path="data/farsnet.json",
+)
+print(graph.adjacency)
+```
+
+اگر خروجی FarsNet شما CSV/TSV باشد، دو حالت رایج پشتیبانی می‌شود:
+
+```csv
+source,target
+ماشین,خودرو
+پزشک,دکتر
+```
+
+یا:
+
+```csv
+synset_id,word
+s1,ماشین
+s1,خودرو
+s2,پزشک
+s2,دکتر
+```
 
 ## ساختار پروژه
 
-```
+```text
 rakhshai_graph_nlp/
-├── features/        # توکنایز و پیش‌پردازش متن
+├── features/        # توکنایز، پیش‌پردازش و تبدیل به PyG
 ├── graphs/          # توابع ساخت گراف
 ├── models/          # مدل‌های GNN
 ├── tasks/           # وظایف کاربردی
 ├── explain/         # ابزارهای تبیین اولیه
 ├── metrics.py       # معیارهای ارزیابی
-├── cli.py           # رابط خط فرمان rgnn-cli
+├── cli.py           # رابط خط فرمان
 └── utils/           # توابع کمکی
 
+benchmarks/          # دیتاست‌های کوچک قابل تکرار
 docs/                # مستندات MkDocs
-tests/               # تست‌های واحد
+tests/               # تست‌های واحد و end-to-end
 ```
 
-## راه اندازی سریع
+## benchmarkهای قابل تکرار
 
-به راحتی پروژه را راه اندازی کن :
-```bash
-python -m pip install -e .           
-python -m pip install -e ".[ml]"
+یک benchmark کوچک فارسی در `benchmarks/persian_text_classification.csv` وجود
+دارد تا مسیر کامل ساخت گراف، آموزش، ارزیابی و ذخیره گزارش سریع بررسی شود.
+این دیتاست ۲۴ متن خبری کوتاه در سه کلاس `politics`، `sports` و `art` دارد؛
+برای smoke test و مقایسه تنظیمات مناسب است، نه برای ادعای کیفیت نهایی مدل.
+
+نمونه اجراهای تکرارپذیر روی CPU با `seed=0`:
+
+| مدل | validation accuracy | test accuracy | test macro-F1 | مسیر گزارش |
+| --- | ---: | ---: | ---: | --- |
+| `gcn` | 1.00 | 0.75 | 0.60 | `runs/benchmarks/persian-classification-gcn/metrics.json` |
+| `graphsage` | 1.00 | 1.00 | 1.00 | `runs/benchmarks/persian-classification-graphsage/metrics.json` |
+| `gat` | 1.00 | 1.00 | 1.00 | `runs/benchmarks/persian-classification-gat/metrics.json` |
+
+نمونه خروجی `metrics.json`:
+
+```json
+{
+  "dataset": "benchmarks/persian_text_classification.csv",
+  "model": "gcn",
+  "device": "cpu",
+  "num_documents": 24,
+  "num_nodes": 175,
+  "num_classes": 3,
+  "splits": {
+    "train": {"count": 16, "accuracy": 1.0, "macro_f1": 1.0},
+    "validation": {"count": 4, "accuracy": 1.0, "macro_f1": 1.0},
+    "test": {"count": 4, "accuracy": 0.75, "macro_f1": 0.6}
+  }
+}
 ```
 
-پس از نصب وابستگی‌ها می‌توانید تست‌های پروژه را اجرا کنید تا از صحت نصب مطمئن شوید:
-
-```bash
-python -m pip install pytest
-python -m pytest
-```
-
-برای اجرا عملکرد قابلیت های پروژه این دستور را وارد کنید:
-
-```bash
-python -m pytest tests/test_tasks.py -q
-```
-
-دستور برای هر بار فعال سازی پروژه - mac/linux : 
-```bash
-source .venv/bin/activate
-```
-دستور برای هر بار فعال سازی پروژه - ویندوز PowerShell : 
-```bash
-.venv\Scripts\Activate.ps1
-```
-دستور برای هر بار فعال سازی پروژه - ویندوز CMD : 
-```bash
-.venv\Scripts\activate.bat
-```
-
-
-یک فایل با نام demo_summary.py در مسیر اصلی پروژه ایجاد کنید و کد زیر را برای نمونه داخل آن قرار دهید (نمونه ۱: خلاصه‌سازی یک متن فارسی) : 
-```bash
-from rakhshai_graph_nlp.tasks.summarization import textrank_summarise
-
-text = """
-هوش مصنوعی در سال‌های اخیر رشد زیادی داشته است.
-بسیاری از شرکت‌ها از مدل‌های زبانی برای تحلیل متن استفاده می‌کنند.
-در زبان فارسی هم ابزارهای NLP در حال بهتر شدن هستند.
-این پروژه تلاش می‌کند برخی کارهای گراف‌محور را برای فارسی ساده‌تر کند.
-"""
-
-summary = textrank_summarise(text, top_k=2)
-print("خلاصه:")
-print(summary)
-```
-دستور گرفتن خروجی :
-```bash
-python demo_summary.py
-```
-نمونه خروجی : 
-```bash
-خلاصه:
-هوش مصنوعی در سال‌های اخیر رشد زیادی داشته است 
-در زبان فارسی هم ابزارهای NLP در حال بهتر شدن هستند
-```
-## نصب و راه‌اندازی
-
-این مخزن با پایتون ۳٫۹ یا جدیدتر کار می‌کند. برای نصب نسخهٔ توسعه‌ای و
-افزودنی‌های اختیاری می‌توانید از ماتریس زیر استفاده کنید:
+برای اجرای همان benchmark توسط خودتان:
 
 ```bash
-pip install -e .            # هسته
-pip install -e .[sparse]    # توابع گراف تنک
-pip install -e .[ml]        # وابستگی‌های یادگیری ماشین
-pip install -e .[fa]        # پشتیبانی Faiss
-pip install -e .[docs]      # ساخت مستندات
-```
-
-برخی از قابلیت‌ها مانند ساخت گراف شباهت اسناد (`build_document_graph`)، توصیه‌گر محتوا (`recommend_similar`) و خلاصه‌سازی مبتنی بر TextRank (`textrank_summarise`) برای محاسبات TF‑IDF و شباهت کسینوسی به کتابخانهٔ `scikit-learn` وابسته‌اند. این وابستگی با گزینهٔ افزونهٔ `ml` نصب می‌شود.
-
-پس از نصب وابستگی‌ها می‌توانید تست‌های پروژه را اجرا کنید تا از صحت نصب مطمئن شوید:
-
-```bash
-python -m pip install pytest
-python -m pytest
-```
-در صورت نیاز برای خطا در وابستگی ها :
-```bash
-python -m pip install -e ".[ml]"
-python -m pytest
-```
-
-رابط خط فرمان پروژه علاوه بر اجرای آزمایش کوچک داخلی، اکنون یک پایپ‌لاین
-کامل‌تر برای طبقه‌بندی متن دارد. می‌توانید یک دیتاست CSV/TSV/JSONL با
-ستون‌های `text` و `label` بدهید تا پروژه متن‌ها را توکنایز کند، گراف
-TextGCN بسازد، داده را به train/validation/test تقسیم کند، مدل‌های
-`gcn`، `graphsage` یا `gat` را آموزش دهد، معیارهای `accuracy` و
-`macro_f1` را گزارش کند و در صورت نیاز checkpoint مدل را ذخیره کند.
-
-برای اجرای یک آزمایش کوچک خط فرمان که یک مدل GCN ساده را اجرا کرده و دقت حاصل را چاپ می‌کند (با امکان انتخاب پردازنده یا GPU):
-
-```bash
-rgnn-cli --model gcn --device cuda
-```
-
-نمونهٔ خروجی این فرمان چیزی شبیه زیر خواهد بود (در صورت نبود GPU می‌توانید `--device cpu` را انتخاب کنید):
-
-```
-INFO - model=gcn accuracy=0.333
-```
-
-نمونهٔ اجرای پایپ‌لاین واقعی روی فایل داده:
-
-```bash
-rgnn-cli \
-  --dataset data/news.csv \
-  --text-column text \
-  --label-column label \
-  --model gcn \
-  --epochs 50 \
-  --output-dir runs/news-gcn \
-  --save-model runs/news-gcn/model.pt
-```
-
-پس از اجرا، فایل `metrics.json` در مسیر خروجی ساخته می‌شود و شامل تعداد
-نمونه‌ها، نگاشت برچسب‌ها، اندازهٔ splitها و معیارهای validation/test است.
-برای تنظیم‌پذیری بیشتر، همین گزینه‌ها را می‌توان در یک فایل JSON قرار داد
-و با `--config config.json` اجرا کرد.
-
-## مثال‌ها و آزمایش‌ها
-
-در این بخش نحوهٔ استفاده از هر ماژول با مثال‌های ساده توضیح داده می‌شود. برای اجرای مثال‌ها ابتدا باید پوشهٔ پروژه را در متغیر محیطی `PYTHONPATH` اضافه کنید یا اسکریپت‌های خود را در همان پوشه اجرا کنید.
-
-### ۱. طبقه‌بندی اسناد با GCN
-
-در این مثال سه خبر ساده در سه دستهٔ «سیاسی»، «ورزشی» و «هنری» داریم. ابتدا متن‌ها را توکنایز می‌کنیم، سپس با `build_text_graph` گرافی شامل کلمات و اسناد می‌سازیم و در نهایت یک مدل GCN برای طبقه‌بندی اسناد آموزش می‌دهیم.
-
-```python
-import sys
-import numpy as np
-import torch
-sys.path.append('مسیر/به/پروژه')  # مسیر پوشهٔ rakhshai_graph_nlp
-from rakhshai_graph_nlp.features.pyg_data import graph_to_data
-from rakhshai_graph_nlp.features.tokenizer import tokenize
-from rakhshai_graph_nlp.graphs.text_graph import build_text_graph
-from rakhshai_graph_nlp.tasks.classification import train_gcn_classifier
-
-docs = [
-    "این یک خبر سیاسی است و دربارهٔ انتخابات صحبت می‌کند.",
-    "تیم فوتبال امروز بازی مهمی دارد و همه منتظر نتیجه هستند.",
-    "نمایشگاه جدید هنری با آثار نقاشان جوان افتتاح شد."
-]
-labels = np.array([0, 1, 2])  # برچسب اسناد به ترتیب
-
-# توکنایز هر سند
-tokenised = [tokenize(d) for d in docs]
-# ساخت گراف TextGCN مانند
-graph = build_text_graph(tokenised)
-# ویژگی‌های اولیه برای هر گره: ماتریس هویت
-X = np.eye(len(graph.nodes))
-# ماسک آموزش: فقط گره‌های اسناد را در آموزش وارد می‌کنیم
-n_words = len(graph.node_types) - len(docs)
-mask = np.zeros(len(graph.nodes), dtype=bool)
-mask[n_words:] = True
-# تنظیم برچسب‌ها برای همهٔ گره‌ها: کلمات برچسبی ندارند، مقدار ۰ قرار می‌دهیم
-all_labels = np.zeros(len(graph.nodes), dtype=int)
-all_labels[n_words:] = labels
-
-# آموزش مدل روی GPU در صورت موجود بودن
-device = "cuda" if torch.cuda.is_available() else "cpu"
-clf, losses = train_gcn_classifier(
-    graph,
-    X,
-    all_labels,
-    mask=mask,
-    hidden_dim=8,
-    num_epochs=100,
-    device=device,
-)
-
-# ساخت دادهٔ PyG برای پیش‌بینی
-data = graph_to_data(graph, features=X, labels=all_labels).to(device)
-preds = clf.predict(data).cpu().numpy()[n_words:]
-print("پیش‌بینی دسته‌بندی اسناد:", preds)
-```
-
-### ۲. خلاصه‌سازی با TextRank
-
-```python
-from rakhshai_graph_nlp.tasks.summarization import textrank_summarise
-text = "این یک متن نمونه برای خلاصه‌سازی است. ما می‌خواهیم ببینیم آیا الگوریتم می‌تواند جملات مهم را پیدا کند. در نهایت جملات برتر به عنوان خلاصه ارائه می‌شوند."
-summary = textrank_summarise(text, top_k=2)
-print(summary)
-```
-
-### ۳. توصیه‌گر محتوا
-
-```python
-from rakhshai_graph_nlp.tasks.recommendation import recommend_similar
-query = "این نمایشگاه جذاب است."
-docs = ["این یک خبر سیاسی است و دربارهٔ انتخابات صحبت می‌کند.",
-        "تیم فوتبال امروز بازی مهمی دارد و همه منتظر نتیجه هستند.",
-        "نمایشگاه جدید هنری با آثار نقاشان جوان افتتاح شد."]
-print(recommend_similar(query, docs, top_k=2))
-```
-
-### ۴. تشخیص نفرت‌پراکنی
-
-```python
-from rakhshai_graph_nlp.tasks.hate_speech import contains_hate_speech
-hate_terms = ['نفرت', 'لعنت']
-print(contains_hate_speech('این پیام حاوی نفرت است', hate_terms))  # True
-print(contains_hate_speech('این پیام خوب است', hate_terms))       # False
-```
-
-### ۵. تحلیل شبکهٔ اجتماعی با GraphSAGE
-
-```python
-import numpy as np
-from rakhshai_graph_nlp.graphs.graph import Graph
-from rakhshai_graph_nlp.tasks.social_analysis import compute_social_embeddings
-
-adjacency = np.array([[0,1,0], [1,0,1], [0,1,0]], dtype=float)
-graph = Graph(nodes=['کاربرA','کاربرB','کاربرC'], adjacency=adjacency)
-features = np.eye(3)  # ویژگی اولیه هر کاربر
-embeddings = compute_social_embeddings(graph, features, hidden_dims=[16, 8])
-print(embeddings)
-```
-
-## گسترش و مشارکت
-
-این پروژه در حال توسعه است و از پیشنهادها و مشارکت‌های شما استقبال می‌کند. اگر قصد افزودن ویژگی جدید (مثلاً گراف معنایی با استفاده از WordNet فارسی) یا بهبود عملکرد مدل‌ها را دارید، می‌توانید در مخزن تغییرات خود را پیشنهاد کنید. همچنین اگر خطا یا باگی یافتید، لطفاً آن را گزارش دهید.
-
-## منابع
-
-برخی مطالب و مفاهیم این پروژه با الهام از منابع علمی زیر تهیه شده‌اند:
-
-- **Stanza:** یک بستهٔ جامع برای تجزیهٔ متن که شامل توکن‌سازی، برچسب‌گذاری نقش دستوری، لِماتیزاسیون، تجزیهٔ نحوی و تشخیص موجودیت نام‌دار برای زبان‌های مختلف است.
-- **GraphSAGE:** مدل یادگیری استقرایی که با نمونه‌گیری و تجمیع ویژگی‌های همسایه، embedding گره‌های جدید را تولید می‌کند و برای گراف‌های بزرگ و پویا مناسب است.
-- **TextRank:** الگوریتمی که یک گراف از کلمات (یا جملات) می‌سازد و با اجرای PageRank مهم‌ترین واحدها را برای استخراج خلاصه انتخاب می‌کند.
-- **WordNet:** پایگاه دادهٔ واژگانی که واژه‌ها را در مجموعه‌های هم‌معنا (synset) سازمان‌دهی می‌کند و روابط معنایی میان آن‌ها را نگهداری می‌کند.
-- **TextGCN:** چارچوبی که گرافی از کلمات و اسناد می‌سازد و وزن edgesی کلمه–کلمه را بر اساس PMI و edgesی کلمه–سند را بر اساس TF‑IDF تعیین می‌کند.
-
-استفاده از این کتابخانه به شما کمک می‌کند تا سریعاً پژوهش‌های مقدماتی خود را در زمینهٔ پردازش زبان فارسی مبتنی بر گراف آغاز کنید و آن را توسعه دهید.
-## نتایج آزمایشی
-
-### ارزیابی طبقه‌بندی متن
-برای سنجش مسیر طبقه‌بندی متن فارسی، یک مجموعهٔ کوچک و قابل تکرار در
-`benchmarks/persian_text_classification.csv` آماده شده است. این مجموعه شامل
-۲۴ متن کوتاه فارسی در سه کلاس `politics`، `sports` و `art` است. در این
-آزمایش، متن‌ها با `build_text_graph` به گراف واژه-سند تبدیل شدند و سپس یک
-مدل GCN روی گره‌های سند آموزش داده شد.
-
-فرمان اجرای آزمایش:
-
-```bash
-python3 -m rakhshai_graph_nlp.cli \
+python -m rakhshai_graph_nlp.cli \
   --dataset benchmarks/persian_text_classification.csv \
   --model gcn \
-  --epochs 200 \
-  --hidden-dim 16 \
+  --epochs 50 \
+  --hidden-dim 8 \
   --learning-rate 0.01 \
   --dropout 0.2 \
   --seed 0 \
   --device cpu \
-  --output-dir runs/persian-classification-gcn
+  --output-dir runs/benchmarks/persian-classification-gcn
 ```
 
-خروجی ثبت‌شده در `metrics.json`:
+برای مقایسه سه مدل اصلی:
 
-| بخش داده | تعداد نمونه | Accuracy | Macro-F1 |
-| --- | ---: | ---: | ---: |
-| Train | 16 | 1.00 | 1.00 |
-| Validation | 4 | 0.75 | 0.56 |
-| Test | 4 | 1.00 | 1.00 |
+```bash
+for model in gcn graphsage gat; do
+  python -m rakhshai_graph_nlp.cli \
+    --dataset benchmarks/persian_text_classification.csv \
+    --model "$model" \
+    --epochs 50 \
+    --hidden-dim 8 \
+    --learning-rate 0.01 \
+    --dropout 0.2 \
+    --seed 0 \
+    --device cpu \
+    --output-dir "runs/benchmarks/persian-classification-$model"
+done
+```
 
-این نتیجه نشان می‌دهد پایپ‌لاین طبقه‌بندی پروژه، از توکن‌سازی و ساخت گراف
-TextGCN تا آموزش و ارزیابی مدل GCN، به‌صورت انتها‌به‌انتها روی متن فارسی
-قابل اجراست. این عددها برای نمایش عملکرد پایه روی یک benchmark کوچک
-داخلی هستند و برای ارزیابی پژوهشی نهایی باید روی دیتاست‌های بزرگ‌تر و
-متنوع‌تر فارسی تکرار شوند.
+پس از اجرا، گزارش هر مدل در `metrics.json` ذخیره می‌شود. برای دیدن خلاصه:
 
-در صورت استفاده از GPU، زمان آموزش مدل‌های گرافی به‌ویژه روی دیتاست‌های
-بزرگ‌تر کاهش می‌یابد و امکان اجرای آزمایش‌های بزرگ‌تر، مدل‌های سنگین‌تر و
-تنظیمات آموزشی متنوع‌تر را فراهم می‌کند.
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
 
-### ارزیابی خلاصه‌سازی (TextRank)
-مقادیر ROUGE برای یک خبر نمونه:
-| تعداد جملات خلاصه | ROUGE-1 | ROUGE-2 | ROUGE-L |
-| --- | --- | --- | --- |
-| 3 | 0.83 | 0.64 | 0.67 |
-| 5 | 0.75 | 0.73 | 0.75 |
+for path in sorted(Path("runs/benchmarks").glob("*/metrics.json")):
+    report = json.loads(path.read_text(encoding="utf-8"))
+    test = report["splits"]["test"]
+    print(
+        f"{report['model']:10s} "
+        f"test_acc={test['accuracy']:.3f} "
+        f"test_macro_f1={test['macro_f1']:.3f} "
+        f"report={path}"
+    )
+PY
+```
 
-### آزمون توصیه‌گر محتوا
-- **Precision@3:** 0.33
-- **NDCG@3:** 1.00
+برای سنجش جدی‌تر، همین pipeline را روی benchmarkهای شناخته‌شده فارسی هم اجرا
+کنید. کافی است دیتاست را به CSV/TSV/JSONL با ستون‌های `text` و `label`
+تبدیل کنید و همان دستور CLI را بدهید.
 
-### آزمایش فشار ساخت گراف
-| تابع | N (سند) | زمان (ثانیه) | اوج حافظه (MB) |
-|------|---------|--------------|----------------|
-| build_cooccurrence_graph | 1k | 0.54 | 0.09 |
-| build_cooccurrence_graph | 10k | 5.43 | 0.09 |
-| build_cooccurrence_graph | 50k | 31.43 | 0.10 |
-| build_text_graph | 1k | 1.36 | 10.14 |
-| build_text_graph | 10k | 12.41 | 786.62 |
-| build_text_graph | 50k | خطای حافظه | 19188.09 |
+| benchmark | کاربرد رایج | نکته آماده‌سازی |
+| --- | --- | --- |
+| [Hamshahri Corpus](https://en.wikipedia.org/wiki/Hamshahri_Corpus) | طبقه‌بندی خبر و بازیابی اطلاعات فارسی | متن خبر را در `text` و دسته خبر را در `label` بگذارید. |
+| [SnappFood Persian Sentiment](https://www.kaggle.com/datasets/soheiltehranipour/snappfood-persian-sentiment-analysis) | تحلیل احساسات نظر کاربران | متن نظر را `text` و برچسب مثبت/منفی را `label` کنید. |
+| [SentiPers](https://www.researchgate.net/publication/322694676_SentiPers_A_Sentiment_Analysis_Corpus_for_Persian) | تحلیل احساسات فارسی | اگر چند سطح polarity دارید، آن‌ها را به برچسب‌های متنی ثابت تبدیل کنید. |
+| [Pars-ABSA](https://arxiv.org/abs/1908.01815) | احساسات جنبه‌محور فارسی | برای این CLI، هر نمونه را به یک برچسب کلی تبدیل کنید یا هر aspect را یک ردیف جدا بگیرید. |
 
-نرخ رشد زمانی تقریبی:
-- build_cooccurrence_graph ≈ 6.3×10⁻⁴ ثانیه برای هر سند
-- build_text_graph ≈ 1.3×10⁻³ ثانیه برای هر سند (تا 10k سند)
+مثال اجرای دیتاست خودتان:
 
-### آزمون رگرسیون انتها به انتها
-- **F1 خرد پایه:** 0.33 (آستانهٔ تغییر مجاز ±0.005)
-- **هش پیش‌بینی‌ها:** `f65dc34a53c987dd5866c2ae9c65a405`
+```bash
+python -m rakhshai_graph_nlp.cli \
+  --dataset data/my_persian_dataset.csv \
+  --text-column text \
+  --label-column label \
+  --model gat \
+  --epochs 80 \
+  --hidden-dim 16 \
+  --learning-rate 0.005 \
+  --dropout 0.3 \
+  --seed 42 \
+  --device cuda \
+  --output-dir runs/my-persian-benchmark-gat
+```
+
+اگر CUDA در سیستم در دسترس نباشد، `--device cpu` بگذارید. برای مقایسه منصفانه
+بین مدل‌ها، split، seed، تعداد epoch و پیش‌پردازش را ثابت نگه دارید و علاوه
+بر accuracy، مقدار macro-F1 را هم گزارش کنید؛ مخصوصاً وقتی کلاس‌ها نامتوازن
+هستند.
+
+## محدودیت‌های فعلی
+
+- `build_text_graph` از ماتریس dense استفاده می‌کند و برای مجموعه‌های خیلی
+  بزرگ می‌تواند از نظر حافظه محدود شود.
+- کیفیت خروجی مدل‌ها به کیفیت داده، توکن‌سازی و تنظیمات آموزش وابسته است.
+- `HateSpeechDetector` برای کاربرد حساس باید با دادهٔ واقعی، بررسی خطا و
+  کنترل bias آموزش داده شود.
+- برای گراف معنایی قوی‌تر، از FarsNet، روابط واژگانی معتبر یا embedding
+  فارسی باکیفیت استفاده کنید.
+
+## منابع الهام
+
+- **TextGCN:** گراف واژه-سند با PMI و TF-IDF برای طبقه‌بندی متن.
+- **GCN / GraphSAGE / GAT:** مدل‌های شبکهٔ عصبی گرافی برای انتشار و تجمیع
+  اطلاعات در گراف.
+- **TextRank:** رتبه‌بندی جمله‌ها یا واژه‌ها با PageRank روی گراف شباهت.
+- **Stanza:** ابزار تحلیل زبانی برای tokenization، lemmatization و dependency
+  parsing.

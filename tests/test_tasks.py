@@ -4,17 +4,22 @@ import pytest
 from rakhshai_graph_nlp.features.pyg_data import graph_to_data
 from rakhshai_graph_nlp.graphs.graph import Graph
 from rakhshai_graph_nlp.tasks.classification import (
+    TextGraphClassifier,
     _select_device,
     train_gcn_classifier,
     train_node_classifier,
 )
-from rakhshai_graph_nlp.tasks.hate_speech import contains_hate_speech
+from rakhshai_graph_nlp.tasks.hate_speech import (
+    HateSpeechDetector,
+    contains_hate_speech,
+)
 from rakhshai_graph_nlp.tasks.recommendation import recommend_similar
 from rakhshai_graph_nlp.tasks.social_analysis import compute_social_embeddings
 from rakhshai_graph_nlp.tasks.summarization import (
     GATSummarizer,
     _pagerank,
     _build_sentence_graph,
+    gat_summarise,
     split_sentences,
     textrank_summarise,
 )
@@ -71,6 +76,42 @@ def test_train_node_classifier_validates_label_and_mask_lengths():
         train_node_classifier(g, np.array([0, 1]), mask=np.array([True]), num_epochs=1)
 
 
+def test_text_graph_classifier_fit_predict_evaluate_and_save_load(tmp_path):
+    texts = [
+        "انتخابات دولت مجلس",
+        "قانون دولت مجلس",
+        "فوتبال تیم گل",
+        "مسابقه تیم فوتبال",
+    ]
+    labels = ["politics", "politics", "sports", "sports"]
+    clf = TextGraphClassifier(
+        hidden_dim=4,
+        num_epochs=3,
+        dropout=0.0,
+        learning_rate=0.01,
+        seed=0,
+    )
+
+    clf.fit(texts, labels)
+    preds = clf.predict(["دولت و مجلس", "تیم فوتبال"])
+    report = clf.evaluate(texts, labels)
+
+    assert len(preds) == 2
+    assert set(preds) <= {"politics", "sports"}
+    assert report["count"] == 4
+    assert 0.0 <= report["accuracy"] <= 1.0
+    assert 0.0 <= report["macro_f1"] <= 1.0
+
+    model_dir = tmp_path / "text-graph-model"
+    clf.save(model_dir)
+
+    loaded = TextGraphClassifier.load(model_dir)
+
+    assert loaded.predict(["دولت و مجلس"]) == clf.predict(
+        ["دولت و مجلس"]
+    )
+
+
 def test_select_device_falls_back_when_cuda_is_unavailable():
     if _select_device("cuda").type == "cpu":
         assert _select_device("cuda").type == "cpu"
@@ -93,6 +134,38 @@ def test_contains_hate_speech_checks_terms_lazily():
     assert contains_hate_speech("این متن بد است", terms())
     assert terms_checked == ["بد"]
     assert not contains_hate_speech("متن معمولی", ["بد", "زشت"])
+
+
+def test_hate_speech_detector_fit_predict_save_load(tmp_path):
+    texts = [
+        "متن آرام و محترمانه",
+        "گفتگوی خوب و عادی",
+        "توهین بد و نفرت",
+        "پیام بد و سمی",
+    ]
+    labels = [False, False, True, True]
+    detector = HateSpeechDetector(
+        hidden_dim=4,
+        num_epochs=3,
+        learning_rate=0.01,
+        seed=0,
+    )
+
+    detector.fit(texts, labels)
+    preds = detector.predict(["متن محترمانه", "پیام نفرت"])
+    report = detector.evaluate(texts, labels)
+
+    assert len(preds) == 2
+    assert all(isinstance(pred, bool) for pred in preds)
+    assert report["count"] == 4
+
+    model_dir = tmp_path / "hate-detector"
+    detector.save(model_dir)
+    loaded = HateSpeechDetector.load(model_dir)
+
+    assert loaded.predict_labels(["متن محترمانه"]) == detector.predict_labels(
+        ["متن محترمانه"]
+    )
 
 
 def test_recommend_similar():
@@ -220,3 +293,17 @@ def test_gat_summarizer_limits_selection_to_available_nodes():
 
     assert idx.shape == (2,)
     assert set(idx.tolist()) == {0, 1}
+
+
+def test_gat_summarise_returns_requested_sentence_count():
+    pytest.importorskip("sklearn")
+
+    summary = gat_summarise(
+        "alpha beta beta. alpha beta. gamma delta.",
+        top_k=2,
+        hidden_dim=4,
+        output_dim=2,
+        random_state=0,
+    )
+
+    assert len(summary.splitlines()) == 2

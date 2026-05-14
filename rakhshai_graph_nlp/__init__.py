@@ -5,11 +5,13 @@ from importlib import import_module
 from .features.tokenize import split_sentences, tokenize
 from .graphs import sparse as graphs_sparse
 from .metrics import accuracy, confusion_matrix, macro_f1
+from .tasks.classification import TextGraphClassifier
 
 # Re-export models package
 from . import models
 
 __all__ = [
+    "TextGraphClassifier",
     "accuracy",
     "confusion_matrix",
     "macro_f1",

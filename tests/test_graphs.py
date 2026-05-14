@@ -5,7 +5,11 @@ from rakhshai_graph_nlp.graphs.graph import Graph
 from rakhshai_graph_nlp.graphs.co_occurrence import build_cooccurrence_graph
 from rakhshai_graph_nlp.graphs.dependency import build_dependency_graph
 from rakhshai_graph_nlp.graphs.document import build_document_graph
-from rakhshai_graph_nlp.graphs.semantic import build_semantic_graph
+from rakhshai_graph_nlp.graphs.semantic import (
+    build_semantic_graph,
+    build_semantic_graph_from_farsnet,
+    load_farsnet_relations,
+)
 from rakhshai_graph_nlp.graphs.text_graph import build_text_graph
 
 
@@ -74,6 +78,67 @@ def test_build_semantic_graph():
     relations = {"گربه": ["سگ"]}
     g_rel = build_semantic_graph(words, relations=relations)
     assert g_rel.adjacency[0, 1] == 1 and g_rel.adjacency[1, 0] == 1
+
+
+def test_build_semantic_graph_from_embeddings():
+    words = ["گربه", "سگ", "ماشین"]
+    embeddings = {
+        "گربه": [1.0, 0.0],
+        "سگ": [0.9, 0.1],
+        "ماشین": [0.0, 1.0],
+    }
+
+    g = build_semantic_graph(
+        words,
+        embedding_lookup=embeddings,
+        similarity_threshold=0.8,
+    )
+
+    assert g.adjacency[0, 1] > 0.8
+    assert g.adjacency[0, 2] == 0
+
+
+def test_load_farsnet_relations_from_json_synsets(tmp_path):
+    farsnet_path = tmp_path / "farsnet.json"
+    farsnet_path.write_text(
+        """
+        {
+          "synsets": [
+            {"id": "s1", "lemmas": ["ماشین", "خودرو", "اتومبیل"]},
+            {"id": "s2", "lemmas": ["پزشک", "دکتر"]}
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    relations = load_farsnet_relations(farsnet_path)
+    graph = build_semantic_graph_from_farsnet(
+        ["ماشین", "خودرو", "پزشک", "دکتر"],
+        farsnet_path,
+    )
+
+    assert "خودرو" in relations["ماشین"]
+    assert graph.adjacency[0, 1] == 1
+    assert graph.adjacency[2, 3] == 1
+
+
+def test_load_farsnet_relations_from_csv_pairs(tmp_path):
+    farsnet_path = tmp_path / "farsnet.csv"
+    farsnet_path.write_text(
+        "source,target\n"
+        "فوتبال,تیم\n"
+        "فوتبال,گل\n",
+        encoding="utf-8",
+    )
+
+    graph = build_semantic_graph_from_farsnet(
+        ["فوتبال", "تیم", "گل"],
+        farsnet_path,
+    )
+
+    assert graph.adjacency[0, 1] == 1
+    assert graph.adjacency[0, 2] == 1
 
 
 def test_build_text_graph():

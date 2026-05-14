@@ -271,42 +271,139 @@ def _run_dataset_pipeline(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run a tiny experiment")
-    parser.add_argument("--config", help="Path to a JSON config file", default=None)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Train and evaluate graph-based Persian text classifiers, or run a "
+            "small built-in smoke experiment when no dataset is provided."
+        ),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--config",
+        help="Path to a JSON config file whose keys match CLI option names",
+        default=None,
+    )
     parser.add_argument(
         "--dataset",
-        help="CSV, TSV or JSONL dataset for training",
+        help="CSV, TSV or JSONL labelled text dataset for training/evaluation",
         default=None,
     )
     parser.add_argument(
         "--dataset-format",
         choices=["auto", "csv", "tsv", "jsonl"],
         default="auto",
+        help="Dataset file format; auto detects from the file extension",
     )
-    parser.add_argument("--text-column", default="text")
-    parser.add_argument("--label-column", default="label")
-    parser.add_argument("--train-ratio", type=float, default=0.7)
-    parser.add_argument("--val-ratio", type=float, default=0.15)
-    parser.add_argument("--test-ratio", type=float, default=0.15)
-    parser.add_argument("--output-dir", default="runs/rgnn")
-    parser.add_argument("--report-path", default=None)
-    parser.add_argument("--save-model", default=None)
-    parser.add_argument("--window-size", type=int, default=20)
-    parser.add_argument("--min-count", type=int, default=1)
-    parser.add_argument("--model", choices=["gcn", "graphsage", "gat"], default="gcn")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--log-level", default="INFO")
-    parser.add_argument("--log-to", choices=["wandb", "mlflow"], default=None)
-    parser.add_argument("--hidden-dim", type=int, default=8)
-    parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--learning-rate", type=float, default=1e-3)
-    parser.add_argument("--weight-decay", type=float, default=5e-4)
-    parser.add_argument("--dropout", type=float, default=0.5)
-    parser.add_argument("--gat-heads", type=int, default=4)
+    parser.add_argument("--text-column", default="text", help="Name of the text field")
+    parser.add_argument(
+        "--label-column",
+        default="label",
+        help="Name of the class label field",
+    )
+    parser.add_argument(
+        "--train-ratio",
+        type=float,
+        default=0.7,
+        help="Relative share of labelled documents used for training",
+    )
+    parser.add_argument(
+        "--val-ratio",
+        type=float,
+        default=0.15,
+        help="Relative share of labelled documents used for validation",
+    )
+    parser.add_argument(
+        "--test-ratio",
+        type=float,
+        default=0.15,
+        help="Relative share of labelled documents used for final testing",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="runs/rgnn",
+        help="Directory where metrics.json is written unless --report-path is set",
+    )
+    parser.add_argument(
+        "--report-path",
+        default=None,
+        help="Explicit path for the JSON metrics report",
+    )
+    parser.add_argument(
+        "--save-model",
+        default=None,
+        help="Optional path for saving the trained PyTorch model checkpoint",
+    )
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        default=20,
+        help="Token co-occurrence window used when building the text graph",
+    )
+    parser.add_argument(
+        "--min-count",
+        type=int,
+        default=1,
+        help="Minimum token frequency required to keep a word node",
+    )
+    parser.add_argument(
+        "--model",
+        choices=["gcn", "graphsage", "gat"],
+        default="gcn",
+        help="Graph neural network architecture to train",
+    )
+    parser.add_argument("--seed", type=int, default=0, help="Random seed for splits")
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        help="Python logging level, such as DEBUG, INFO or WARNING",
+    )
+    parser.add_argument(
+        "--log-to",
+        choices=["wandb", "mlflow"],
+        default=None,
+        help="Optional experiment tracker used by the built-in smoke experiment",
+    )
+    parser.add_argument(
+        "--hidden-dim",
+        type=int,
+        default=8,
+        help="Hidden representation size in the GNN model",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=30,
+        help="Number of training epochs",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=1e-3,
+        help="Optimizer learning rate",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=5e-4,
+        help="Optimizer L2 regularization strength",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.5,
+        help="Dropout probability used by the GNN model",
+    )
+    parser.add_argument(
+        "--gat-heads",
+        type=int,
+        default=4,
+        help="Number of attention heads when --model gat is selected",
+    )
     parser.add_argument(
         "--device",
         choices=["cpu", "cuda"],
         default="cuda" if torch.cuda.is_available() else "cpu",
+        help="Training device; cuda falls back to cpu when unavailable",
     )
     config_args, _ = parser.parse_known_args(argv)
     parser.set_defaults(**_load_config(config_args.config))
@@ -314,6 +411,9 @@ def main(argv: list[str] | None = None) -> int:
 
     logger = setup_logger(args.log_level)
     set_seed(args.seed)
+    if args.device == "cuda" and not torch.cuda.is_available():
+        logger.warning("CUDA requested but unavailable; falling back to CPU")
+        args.device = "cpu"
 
     if args.dataset:
         report = _run_dataset_pipeline(args)
