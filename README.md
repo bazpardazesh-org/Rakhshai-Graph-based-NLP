@@ -110,6 +110,13 @@ python -m pip install -e ".[ml]"
 python -m pip install pytest
 python -m pytest
 ```
+
+برای اجرا عملکرد قابلیت های پروژه این دستور را وارد کنید:
+
+```bash
+python -m pytest tests/test_tasks.py -q
+```
+
 دستور برای هر بار فعال سازی پروژه - mac/linux : 
 ```bash
 source .venv/bin/activate
