@@ -35,3 +35,7 @@ line-length = 88
 
 [tool.mypy]
 ignore_errors = true
+
+[tool.setuptools.packages.find]
+include = ["rakhshai_graph_nlp*"]
+exclude = ["runs*", "tests*", "docs*", "benchmarks*"]
