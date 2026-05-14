@@ -19,6 +19,7 @@ pip install -e .[docs]
 
 - **Graph construction**: `build_cooccurrence_graph`, `build_text_graph`, `build_document_graph`, `build_dependency_graph`, `build_semantic_graph`.
 - **Modelling utilities**: PyTorch Geometric based `train_gcn_classifier`/`train_node_classifier` for GCN, GraphSAGE and GAT models plus `compute_social_embeddings`.
+- **Training pipeline**: `rgnn-cli` can train on CSV, TSV or JSONL text datasets, create train/validation/test splits, report accuracy and macro-F1, and save model checkpoints.
 - **Application tasks**: `textrank_summarise`, `recommend_similar`, `contains_hate_speech` and others.
 
 ## Quick examples
@@ -55,11 +56,27 @@ print(textrank_summarise(text, top_k=2))
 
 ## Command line interface
 
-A simple CLI is bundled for quick experiments:
+The CLI supports both a small built-in smoke experiment and a practical
+training/evaluation path for labelled text datasets:
 
 ```bash
 rgnn-cli --model gcn --device cuda
 ```
+
+For a real dataset with `text` and `label` columns:
+
+```bash
+rgnn-cli \
+  --dataset data/news.csv \
+  --model gcn \
+  --epochs 50 \
+  --output-dir runs/news-gcn \
+  --save-model runs/news-gcn/model.pt
+```
+
+The run writes `metrics.json` with split sizes, label mapping, validation
+metrics and test metrics. The same options can be supplied from a JSON config
+file with `--config config.json`.
 
 ## API reference
 
