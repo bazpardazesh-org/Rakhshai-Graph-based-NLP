@@ -253,8 +253,20 @@ def _run_generate(args: argparse.Namespace) -> str:
     if args.repetition_penalty is not None:
         generation_config.repetition_penalty = args.repetition_penalty
     model.to(device)
+    graph_data, token_node_ids = GraphCausalLM.load_graph_artifacts(
+        args.model,
+        map_location=device,
+    )
+    dynamic_graph_config = None
     corpus_path = Path(args.model) / "corpus.txt"
-    if model.config.graph_encoder != "none" and corpus_path.exists():
+    if model.config.graph_encoder != "none" and bool(graph_config.get("dynamic_graph", False)):
+        graph_data = None
+        token_node_ids = None
+        dynamic_graph_config = graph_config
+    elif graph_data is not None and token_node_ids is not None:
+        graph_data = graph_data.to(device)
+        token_node_ids = token_node_ids.to(device)
+    elif model.config.graph_encoder != "none" and corpus_path.exists():
         graph = build_graph_lm_graph(
             _load_corpus(str(corpus_path)),
             tokenizer,
@@ -278,6 +290,7 @@ def _run_generate(args: argparse.Namespace) -> str:
         graph_data=graph_data,
         token_node_ids=token_node_ids,
         generation_config=generation_config,
+        dynamic_graph_config=dynamic_graph_config,
         max_new_tokens=args.max_new_tokens,
     )
 

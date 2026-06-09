@@ -10,6 +10,8 @@ from rakhshai_graph_nlp.lm import (
     PersianTokenizer,
     build_graph_lm_graph,
 )
+from rakhshai_graph_nlp.lm.model import RakhshaiGraphEncoder, WeightedSAGEConv
+from rakhshai_graph_nlp.lm.trainer import LMTrainer, LMTrainingConfig, _split_corpus, train_graph_lm
 
 
 def test_persian_tokenizer_normalizes_and_encodes():
@@ -97,6 +99,177 @@ def test_graph_builder_supports_ppmi_directed_pruned_context_graph():
     assert "sentence" in set(graph.graph.node_types or [])
     assert data.edge_weight.numel() > 0
     assert hasattr(data, "edge_type")
+
+
+def test_graph_builder_top_k_keeps_undirected_edges_symmetric():
+    texts = [
+        "الف ب پ ت ث",
+        "الف ب ج چ ح",
+        "الف پ ج خ د",
+    ]
+    tokenizer = PersianTokenizer().fit(texts)
+    graph = build_graph_lm_graph(
+        texts,
+        tokenizer,
+        window_size=3,
+        top_k=1,
+        directed=False,
+    )
+    edges = {tuple(edge) for edge in graph.to_pyg_data().edge_index.t().tolist()}
+
+    assert edges
+    assert all((dst, src) in edges for src, dst in edges)
+
+
+def test_graph_lm_checkpoint_is_self_contained_for_generation(tmp_path):
+    texts = ["مجلس قانون را تصویب کرد", "دولت لایحه جدید آورد"]
+    tokenizer = PersianTokenizer().fit(texts)
+    graph = build_graph_lm_graph(texts, tokenizer, window_size=2)
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=6,
+            d_model=16,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=32,
+            graph_encoder="gcn",
+            graph_hidden_dim=16,
+            fusion="gated",
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+    model.save_pretrained(
+        tmp_path,
+        tokenizer=tokenizer,
+        graph_config=graph.graph_config,
+        graph_data=graph.to_pyg_data(),
+        token_node_ids=graph.token_node_ids(tokenizer.vocab_size),
+    )
+
+    graph_data, token_node_ids = GraphCausalLM.load_graph_artifacts(tmp_path)
+
+    assert (tmp_path / "graph.pt").exists()
+    assert graph_data is not None
+    assert token_node_ids is not None
+    assert graph_data.edge_index.numel() > 0
+    assert main(
+        [
+            "generate",
+            "--model",
+            str(tmp_path),
+            "--prompt",
+            "مجلس",
+            "--max-new-tokens",
+            "1",
+            "--device",
+            "cpu",
+        ]
+    ) == 0
+
+
+def test_train_graph_lm_fits_tokenizer_on_train_split_only(tmp_path):
+    corpus = [
+        "alphaone betatwo gammathree",
+        "deltafour epsilonfive zetasix",
+        "etaseven thetaeight iotanine",
+        "kappaten lambdaeleven mutwelve",
+    ]
+    _, validation_corpus = _split_corpus(corpus, validation_ratio=0.25, seed=0)
+    validation_tokens = {
+        token
+        for text in validation_corpus
+        for token in PersianTokenizer().tokenize(text)
+    }
+    output_dir = tmp_path / "lm"
+
+    train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(output_dir),
+            epochs=1,
+            batch_size=1,
+            validation_ratio=0.25,
+            block_size=6,
+            graph_directed=True,
+            graph_weighting="distance",
+            device="cpu",
+            seed=0,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=6,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="none",
+        ),
+        graph_encoder="none",
+    )
+    tokenizer = PersianTokenizer.load(output_dir / "tokenizer.json")
+
+    assert validation_tokens
+    assert validation_tokens.isdisjoint(tokenizer.token_to_id)
+
+
+def test_dynamic_graph_embeddings_use_only_position_prefixes(monkeypatch):
+    import rakhshai_graph_nlp.lm.trainer as trainer_module
+
+    texts = ["الف ب پ"]
+    tokenizer = PersianTokenizer().fit(texts)
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=5,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="gcn",
+            graph_hidden_dim=8,
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+    trainer = LMTrainer(
+        model,
+        tokenizer,
+        None,
+        None,
+        config=LMTrainingConfig(dynamic_graph=True, block_size=5, device="cpu"),
+        graph_config={"dynamic_graph": True},
+    )
+    original_builder = trainer_module.build_graph_lm_graph_from_token_ids
+    calls = []
+
+    def recording_builder(token_id_sequences, *args, **kwargs):
+        calls.append([list(sequence) for sequence in token_id_sequences])
+        return original_builder(token_id_sequences, *args, **kwargs)
+
+    monkeypatch.setattr(
+        trainer_module,
+        "build_graph_lm_graph_from_token_ids",
+        recording_builder,
+    )
+    input_ids = torch.tensor([tokenizer.encode(texts[0])], dtype=torch.long)
+
+    trainer._causal_dynamic_graph_embeddings(input_ids)
+
+    assert calls[0][0] == input_ids[0, :1].tolist()
+    assert calls[1][0] == input_ids[0, :2].tolist()
+    assert input_ids[0, 2].item() not in calls[1][0]
+
+
+def test_graph_encoders_are_edge_weight_aware():
+    gat = RakhshaiGraphEncoder(
+        GraphLMConfig(vocab_size=8, d_model=8, graph_encoder="gat", graph_hidden_dim=4)
+    )
+    sage = RakhshaiGraphEncoder(
+        GraphLMConfig(vocab_size=8, d_model=8, graph_encoder="graphsage", graph_hidden_dim=4)
+    )
+
+    assert gat.conv1.edge_dim == 1
+    assert isinstance(sage.conv1, WeightedSAGEConv)
 
 
 def test_graph_lm_context_fusion_all_layers_forward_shape():

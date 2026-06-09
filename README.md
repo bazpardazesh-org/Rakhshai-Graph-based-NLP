@@ -56,8 +56,8 @@ embedding گرافی تولید می‌کند، و سپس embedding توکن و 
   CSV/TSV/JSONL آموزش و ارزیابی انجام دهید.
 - **Graph-LM فارسی با معماری اختصاصی Rakhshai:** مسیر `lm-train` یک tokenizer
   فارسی، graph builder، GNN encoder، gated graph-token fusion، Transformer
-  causal LM، trainer مخصوص LM، perplexity، checkpoint کامل و تولید متن را
-  کنار هم قرار می‌دهد.
+  causal LM، trainer مخصوص LM، perplexity، checkpoint کامل شامل artifact گراف
+  sparse و تولید متن را کنار هم قرار می‌دهد.
 - **Baseline بدون گراف برای مقایسه منصفانه:** با `--graph-encoder none` می‌توانید
   همان Transformer causal LM را بدون GNN و fusion آموزش دهید و اثر واقعی گراف را
   با validation loss و perplexity بسنجید.

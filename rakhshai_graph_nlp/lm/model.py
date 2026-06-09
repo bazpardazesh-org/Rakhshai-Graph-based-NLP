@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch_geometric.data import Data
-from torch_geometric.nn import GATConv, GCNConv, SAGEConv
+from torch_geometric.nn import GATConv, GCNConv, MessagePassing
 
 from .tokenizer import PersianTokenizer
 
@@ -44,6 +44,34 @@ class GenerationConfig:
     eos_token_id: int = 3
 
 
+class WeightedSAGEConv(MessagePassing):
+    """GraphSAGE-style weighted mean aggregation."""
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__(aggr="add")
+        self.lin_root = nn.Linear(in_channels, out_channels)
+        self.lin_neigh = nn.Linear(in_channels, out_channels)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_weight: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if edge_weight is None:
+            edge_weight = x.new_ones((edge_index.size(1),))
+        edge_weight = edge_weight.to(dtype=x.dtype, device=x.device)
+        out = self.propagate(edge_index, x=x, edge_weight=edge_weight)
+        dst = edge_index[1]
+        denom = x.new_zeros((x.size(0),))
+        denom.scatter_add_(0, dst, edge_weight.abs())
+        out = out / denom.clamp_min(1e-12).unsqueeze(-1)
+        return self.lin_root(x) + self.lin_neigh(out)
+
+    def message(self, x_j: torch.Tensor, edge_weight: torch.Tensor) -> torch.Tensor:
+        return x_j * edge_weight.unsqueeze(-1)
+
+
 class RakhshaiGraphEncoder(nn.Module):
     """GNN encoder that creates graph-aware token embeddings."""
 
@@ -54,14 +82,15 @@ class RakhshaiGraphEncoder(nn.Module):
             self.conv1 = GCNConv(config.d_model, config.graph_hidden_dim)
             self.conv2 = GCNConv(config.graph_hidden_dim, config.d_model)
         elif encoder == "graphsage":
-            self.conv1 = SAGEConv(config.d_model, config.graph_hidden_dim)
-            self.conv2 = SAGEConv(config.graph_hidden_dim, config.d_model)
+            self.conv1 = WeightedSAGEConv(config.d_model, config.graph_hidden_dim)
+            self.conv2 = WeightedSAGEConv(config.graph_hidden_dim, config.d_model)
         elif encoder == "gat":
             self.conv1 = GATConv(
                 config.d_model,
                 config.graph_hidden_dim,
                 heads=config.graph_heads,
                 dropout=config.dropout,
+                edge_dim=1,
             )
             self.conv2 = GATConv(
                 config.graph_hidden_dim * config.graph_heads,
@@ -69,6 +98,7 @@ class RakhshaiGraphEncoder(nn.Module):
                 heads=1,
                 concat=False,
                 dropout=config.dropout,
+                edge_dim=1,
             )
         else:
             raise ValueError("graph_encoder must be one of: gcn, graphsage, gat")
@@ -76,7 +106,7 @@ class RakhshaiGraphEncoder(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
         self.edge_type_bias = (
             nn.Embedding(config.graph_edge_types, 1)
-            if config.graph_edge_types > 1 and encoder == "gcn"
+            if config.graph_edge_types > 1
             else None
         )
 
@@ -91,18 +121,27 @@ class RakhshaiGraphEncoder(nn.Module):
             and edge_weight is not None
             and edge_type is not None
         ):
-            edge_type = edge_type.to(node_features.device).clamp_min(0)
+            edge_type = edge_type.to(node_features.device).clamp(
+                0,
+                self.edge_type_bias.num_embeddings - 1,
+            )
             edge_weight = edge_weight * torch.sigmoid(self.edge_type_bias(edge_type).squeeze(-1))
 
         if self.encoder == "gcn":
             x = self.conv1(node_features, edge_index, edge_weight)
+        elif self.encoder == "gat":
+            edge_attr = None if edge_weight is None else edge_weight.unsqueeze(-1)
+            x = self.conv1(node_features, edge_index, edge_attr=edge_attr)
         else:
-            x = self.conv1(node_features, edge_index)
+            x = self.conv1(node_features, edge_index, edge_weight)
         x = F.relu(x)
         x = self.dropout(x)
         if self.encoder == "gcn":
             return self.conv2(x, edge_index, edge_weight)
-        return self.conv2(x, edge_index)
+        if self.encoder == "gat":
+            edge_attr = None if edge_weight is None else edge_weight.unsqueeze(-1)
+            return self.conv2(x, edge_index, edge_attr=edge_attr)
+        return self.conv2(x, edge_index, edge_weight)
 
 
 class GraphTokenFusion(nn.Module):
@@ -206,12 +245,42 @@ class GraphCausalLM(nn.Module):
         graph_table[valid] = node_embeddings[token_node_ids[valid]]
         return graph_table
 
+    def _graph_embeddings_for_input(
+        self,
+        input_ids: torch.Tensor,
+        graph_data: Data | None,
+        token_node_ids: torch.Tensor | None,
+    ) -> torch.Tensor:
+        token_table = self.token_embedding.weight
+        output_shape = (*input_ids.shape, token_table.size(1))
+        if self.graph_encoder is None or graph_data is None or token_node_ids is None:
+            return token_table.new_zeros(output_shape)
+
+        token_node_ids = token_node_ids.to(token_table.device)
+        valid_tokens = token_node_ids >= 0
+        if not valid_tokens.any():
+            return token_table.new_zeros(output_shape)
+
+        node_features = token_table.new_zeros((graph_data.num_nodes, token_table.size(1)))
+        node_features[token_node_ids[valid_tokens]] = token_table[valid_tokens]
+        node_embeddings = self.graph_encoder(node_features, graph_data)
+
+        flat_input = input_ids.reshape(-1).to(token_table.device)
+        flat_output = token_table.new_zeros((flat_input.numel(), token_table.size(1)))
+        in_range = (flat_input >= 0) & (flat_input < token_node_ids.numel())
+        node_ids = token_node_ids[flat_input.clamp(0, token_node_ids.numel() - 1)]
+        valid_positions = in_range & (node_ids >= 0)
+        if valid_positions.any():
+            flat_output[valid_positions] = node_embeddings[node_ids[valid_positions]]
+        return flat_output.reshape(output_shape)
+
     def forward(
         self,
         input_ids: torch.Tensor,
         *,
         graph_data: Data | None = None,
         token_node_ids: torch.Tensor | None = None,
+        graph_embeddings: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         batch_size, seq_len = input_ids.shape
@@ -219,16 +288,24 @@ class GraphCausalLM(nn.Module):
             input_ids = input_ids[:, -self.config.max_seq_len :]
             if labels is not None:
                 labels = labels[:, -self.config.max_seq_len :]
+            if graph_embeddings is not None:
+                graph_embeddings = graph_embeddings[:, -self.config.max_seq_len :]
             seq_len = self.config.max_seq_len
 
         positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
         token_embeddings = self.token_embedding(input_ids)
-        graph_table = self._graph_embedding_table(graph_data, token_node_ids)
-        graph_embeddings = F.embedding(input_ids, graph_table)
-        has_graph = self.graph_encoder is not None and graph_data is not None and token_node_ids is not None
+        has_graph = graph_embeddings is not None or (
+            self.graph_encoder is not None and graph_data is not None and token_node_ids is not None
+        )
         if not has_graph:
             hidden = token_embeddings
         else:
+            if graph_embeddings is None:
+                graph_embeddings = self._graph_embeddings_for_input(
+                    input_ids,
+                    graph_data,
+                    token_node_ids,
+                )
             hidden = self.fusion(token_embeddings, graph_embeddings)
         hidden = self.dropout(hidden + self.position_embedding(positions))
         padding_mask = input_ids.eq(self.config.pad_token_id)
@@ -258,6 +335,7 @@ class GraphCausalLM(nn.Module):
         graph_data: Data | None = None,
         token_node_ids: torch.Tensor | None = None,
         generation_config: GenerationConfig | None = None,
+        dynamic_graph_config: dict[str, object] | None = None,
         max_new_tokens: int | None = None,
     ) -> str:
         self.eval()
@@ -274,10 +352,26 @@ class GraphCausalLM(nn.Module):
 
         for _ in range(cfg.max_new_tokens):
             context = input_ids[:, -self.config.max_seq_len :]
+            step_graph_data = graph_data
+            step_token_node_ids = token_node_ids
+            if dynamic_graph_config is not None and self.graph_encoder is not None:
+                from .graph_builder import build_graph_lm_graph_from_token_ids
+
+                local_graph = build_graph_lm_graph_from_token_ids(
+                    context.detach().cpu().tolist(),
+                    tokenizer,
+                    window_size=int(dynamic_graph_config.get("window_size", 4)),
+                    weighting=str(dynamic_graph_config.get("weighting", "distance")),
+                    min_edge_weight=float(dynamic_graph_config.get("min_edge_weight", 0.0)),
+                    top_k=dynamic_graph_config.get("top_k"),  # type: ignore[arg-type]
+                    directed=True,
+                )
+                step_graph_data = local_graph.to_pyg_data().to(device)
+                step_token_node_ids = local_graph.token_node_ids(tokenizer.vocab_size).to(device)
             logits = self(
                 context,
-                graph_data=graph_data,
-                token_node_ids=token_node_ids,
+                graph_data=step_graph_data,
+                token_node_ids=step_token_node_ids,
             )["logits"][:, -1, :]
             if cfg.repetition_penalty and cfg.repetition_penalty != 1.0:
                 seen = set(input_ids[0].tolist())
@@ -309,6 +403,8 @@ class GraphCausalLM(nn.Module):
         *,
         tokenizer: PersianTokenizer,
         graph_config: dict[str, object],
+        graph_data: Data | None = None,
+        token_node_ids: torch.Tensor | None = None,
         generation_config: GenerationConfig | None = None,
     ) -> None:
         output_path = Path(output_dir)
@@ -322,6 +418,22 @@ class GraphCausalLM(nn.Module):
         gen_cfg = generation_config or GenerationConfig(eos_token_id=tokenizer.eos_id)
         with (output_path / "generation_config.json").open("w", encoding="utf-8") as f:
             json.dump(asdict(gen_cfg), f, ensure_ascii=False, indent=2)
+        graph_artifact = output_path / "graph.pt"
+        if graph_data is not None and token_node_ids is not None:
+            payload: dict[str, object] = {
+                "num_nodes": int(graph_data.num_nodes),
+                "edge_index": graph_data.edge_index.detach().cpu(),
+                "token_node_ids": token_node_ids.detach().cpu(),
+            }
+            edge_weight = getattr(graph_data, "edge_weight", None)
+            if edge_weight is not None:
+                payload["edge_weight"] = edge_weight.detach().cpu()
+            edge_type = getattr(graph_data, "edge_type", None)
+            if edge_type is not None:
+                payload["edge_type"] = edge_type.detach().cpu()
+            torch.save(payload, graph_artifact)
+        elif graph_artifact.exists():
+            graph_artifact.unlink()
 
     @classmethod
     def from_pretrained(
@@ -342,6 +454,26 @@ class GraphCausalLM(nn.Module):
         with (model_path / "graph_config.json").open(encoding="utf-8") as f:
             graph_config = json.load(f)
         return model, tokenizer, generation_config, graph_config
+
+    @staticmethod
+    def load_graph_artifacts(
+        model_dir: str | Path,
+        *,
+        map_location: str | torch.device = "cpu",
+    ) -> tuple[Data | None, torch.Tensor | None]:
+        graph_path = Path(model_dir) / "graph.pt"
+        if not graph_path.exists():
+            return None, None
+        state = torch.load(graph_path, map_location=map_location)
+        edge_index = state["edge_index"].long()
+        data = Data(edge_index=edge_index, num_nodes=int(state["num_nodes"]))
+        edge_weight = state.get("edge_weight")
+        if edge_weight is not None:
+            data.edge_weight = edge_weight.float()
+        edge_type = state.get("edge_type")
+        if edge_type is not None:
+            data.edge_type = edge_type.long()
+        return data, state["token_node_ids"].long()
 
 
 def perplexity(loss: float) -> float:

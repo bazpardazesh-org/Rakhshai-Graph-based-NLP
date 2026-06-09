@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import torch
+from torch.utils.data import DataLoader
 
-from .dataset import LMDataset, build_lm_dataloaders
+from .dataset import LMDataset, LMLoaders, build_lm_dataloaders
 from .graph_builder import build_graph_lm_graph, build_graph_lm_graph_from_token_ids
 from .model import GenerationConfig, GraphCausalLM, GraphLMConfig, perplexity
 from .tokenizer import PersianTokenizer
@@ -69,6 +70,61 @@ class LMTrainer:
         if self.token_node_ids is not None:
             self.token_node_ids = self.token_node_ids.to(self.device)
 
+    def _causal_dynamic_graph_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
+        step_embeddings: list[torch.Tensor] = []
+        token_sequences = input_ids.detach().cpu().tolist()
+        for step in range(input_ids.size(1)):
+            prefixes = [
+                [
+                    int(token_id)
+                    for token_id in sequence[: step + 1]
+                    if int(token_id) != self.tokenizer.pad_id
+                ]
+                for sequence in token_sequences
+            ]
+            local_graph = build_graph_lm_graph_from_token_ids(
+                prefixes,
+                self.tokenizer,
+                window_size=self.config.graph_window_size,
+                weighting=self.config.graph_weighting,
+                min_edge_weight=self.config.graph_min_edge_weight,
+                top_k=self.config.graph_top_k,
+                directed=True,
+            )
+            graph_data = local_graph.to_pyg_data().to(self.device)
+            token_node_ids = local_graph.token_node_ids(self.tokenizer.vocab_size).to(self.device)
+            current_ids = input_ids[:, step : step + 1]
+            current_embeddings = self.model._graph_embeddings_for_input(
+                current_ids,
+                graph_data,
+                token_node_ids,
+            )
+            step_embeddings.append(current_embeddings.squeeze(1))
+        return torch.stack(step_embeddings, dim=1)
+
+    def _build_loaders(
+        self,
+        dataset: LMDataset,
+        validation_dataset: LMDataset | None,
+    ) -> LMLoaders:
+        if validation_dataset is None:
+            return build_lm_dataloaders(
+                dataset,
+                batch_size=self.config.batch_size,
+                validation_ratio=self.config.validation_ratio,
+                seed=self.config.seed,
+            )
+        generator = torch.Generator().manual_seed(self.config.seed)
+        return LMLoaders(
+            train=DataLoader(
+                dataset,
+                batch_size=self.config.batch_size,
+                shuffle=True,
+                generator=generator,
+            ),
+            validation=DataLoader(validation_dataset, batch_size=self.config.batch_size),
+        )
+
     def _run_epoch(self, loader, optimizer: torch.optim.Optimizer | None = None) -> float:
         training = optimizer is not None
         self.model.train(training)
@@ -79,24 +135,18 @@ class LMTrainer:
             labels = labels.to(self.device)
             graph_data = self.graph_data
             token_node_ids = self.token_node_ids
+            graph_embeddings = None
             if self.config.dynamic_graph and self.model.config.graph_encoder != "none":
-                local_graph = build_graph_lm_graph_from_token_ids(
-                    input_ids.detach().cpu().tolist(),
-                    self.tokenizer,
-                    window_size=self.config.graph_window_size,
-                    weighting=self.config.graph_weighting,
-                    min_edge_weight=self.config.graph_min_edge_weight,
-                    top_k=self.config.graph_top_k,
-                    directed=True,
-                )
-                graph_data = local_graph.to_pyg_data().to(self.device)
-                token_node_ids = local_graph.token_node_ids(self.tokenizer.vocab_size).to(self.device)
+                graph_data = None
+                token_node_ids = None
+                graph_embeddings = self._causal_dynamic_graph_embeddings(input_ids)
             if training:
                 optimizer.zero_grad(set_to_none=True)
             output = self.model(
                 input_ids,
                 graph_data=graph_data,
                 token_node_ids=token_node_ids,
+                graph_embeddings=graph_embeddings,
                 labels=labels,
             )
             loss = output["loss"]
@@ -108,13 +158,12 @@ class LMTrainer:
             total_batches += 1
         return total_loss / max(1, total_batches)
 
-    def train(self, dataset: LMDataset) -> dict[str, object]:
-        loaders = build_lm_dataloaders(
-            dataset,
-            batch_size=self.config.batch_size,
-            validation_ratio=self.config.validation_ratio,
-            seed=self.config.seed,
-        )
+    def train(
+        self,
+        dataset: LMDataset,
+        validation_dataset: LMDataset | None = None,
+    ) -> dict[str, object]:
+        loaders = self._build_loaders(dataset, validation_dataset)
         optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=self.config.learning_rate,
@@ -145,6 +194,8 @@ class LMTrainer:
                     output_dir,
                     tokenizer=self.tokenizer,
                     graph_config=self.graph_config,
+                    graph_data=self.graph_data,
+                    token_node_ids=self.token_node_ids,
                     generation_config=GenerationConfig(eos_token_id=self.tokenizer.eos_id),
                 )
 
@@ -161,6 +212,26 @@ class LMTrainer:
         return metrics
 
 
+def _split_corpus(
+    corpus: Sequence[str],
+    *,
+    validation_ratio: float,
+    seed: int,
+) -> tuple[list[str], list[str]]:
+    if not 0 <= validation_ratio < 1:
+        raise ValueError("validation_ratio must be in [0, 1)")
+    if len(corpus) <= 1 or validation_ratio == 0:
+        return list(corpus), []
+    val_size = int(round(len(corpus) * validation_ratio))
+    val_size = max(1, min(val_size, len(corpus) - 1))
+    generator = torch.Generator().manual_seed(seed)
+    permutation = torch.randperm(len(corpus), generator=generator).tolist()
+    val_indices = set(permutation[:val_size])
+    train = [text for idx, text in enumerate(corpus) if idx not in val_indices]
+    validation = [text for idx, text in enumerate(corpus) if idx in val_indices]
+    return train, validation
+
+
 def train_graph_lm(
     texts: Iterable[str],
     *,
@@ -173,21 +244,36 @@ def train_graph_lm(
     if not corpus:
         raise ValueError("corpus is empty")
     torch.manual_seed(training_config.seed)
+    train_corpus, validation_corpus = _split_corpus(
+        corpus,
+        validation_ratio=training_config.validation_ratio,
+        seed=training_config.seed,
+    )
     tokenizer = PersianTokenizer(
         min_freq=training_config.min_freq,
         max_vocab_size=training_config.max_vocab_size,
         tokenizer_type=training_config.tokenizer_type,
-    ).fit(corpus)
+    ).fit(train_corpus)
     dataset = LMDataset(
-        corpus,
+        train_corpus,
         tokenizer,
         block_size=training_config.block_size,
         stride=training_config.stride,
     )
+    validation_dataset = (
+        LMDataset(
+            validation_corpus,
+            tokenizer,
+            block_size=training_config.block_size,
+            stride=training_config.stride,
+        )
+        if validation_corpus
+        else None
+    )
     graph = None
     if graph_encoder != "none":
         graph = build_graph_lm_graph(
-            corpus,
+            train_corpus,
             tokenizer,
             window_size=training_config.graph_window_size,
             min_count=training_config.graph_min_count,
@@ -218,9 +304,14 @@ def train_graph_lm(
             "graph_encoder": "none",
             "num_nodes": 0,
             "num_edges": 0,
+            "dynamic_graph": training_config.dynamic_graph,
         }
         if graph is None
-        else graph.graph_config
+        else {
+            **graph.graph_config,
+            "dynamic_graph": training_config.dynamic_graph,
+            "graph_source": "train",
+        }
     )
     trainer = LMTrainer(
         model,
@@ -230,4 +321,4 @@ def train_graph_lm(
         config=training_config,
         graph_config=graph_config,
     )
-    return trainer.train(dataset)
+    return trainer.train(dataset, validation_dataset)
