@@ -203,6 +203,14 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         max_vocab_size=args.max_vocab_size,
         graph_window_size=args.graph_window_size,
         graph_min_count=args.graph_min_count,
+        graph_weighting=args.graph_weighting,
+        graph_min_edge_weight=args.graph_min_edge_weight,
+        graph_top_k=args.graph_top_k,
+        graph_directed=args.graph_directed,
+        graph_scope=args.graph_scope,
+        context_node_type=args.context_node_type,
+        dynamic_graph=args.dynamic_graph,
+        tokenizer_type=args.tokenizer_type,
         device=device,
         seed=args.seed,
     )
@@ -221,6 +229,7 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
             graph_hidden_dim=args.graph_hidden_dim,
             graph_heads=args.graph_heads,
             fusion=args.fusion,
+            fusion_layers=args.fusion_layers,
         ),
         graph_encoder=args.graph_encoder,
         fusion=args.fusion,
@@ -251,6 +260,12 @@ def _run_generate(args: argparse.Namespace) -> str:
             tokenizer,
             window_size=int(graph_config.get("window_size", 4)),
             min_count=int(graph_config.get("min_count", 1)),
+            weighting=str(graph_config.get("weighting", "distance")),
+            min_edge_weight=float(graph_config.get("min_edge_weight", 0.0)),
+            top_k=graph_config.get("top_k"),  # type: ignore[arg-type]
+            directed=bool(graph_config.get("directed", False)),
+            graph_scope=str(graph_config.get("graph_scope", "document")),
+            context_node_type=str(graph_config.get("context_node_type", "none")),
         )
         graph_data = graph.to_pyg_data().to(device)
         token_node_ids = graph.token_node_ids(tokenizer.vocab_size).to(device)
@@ -387,7 +402,8 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         choices=["none", "gcn", "graphsage", "gat"],
         default="gat",
     )
-    train.add_argument("--fusion", choices=["gated", "add"], default="gated")
+    train.add_argument("--fusion", choices=["gated", "context_gated", "add"], default="gated")
+    train.add_argument("--fusion-layers", choices=["input", "all"], default="input")
     train.add_argument("--d-model", type=int, default=128)
     train.add_argument("--n-heads", type=int, default=4)
     train.add_argument("--n-layers", type=int, default=2)
@@ -406,6 +422,26 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     train.add_argument("--max-vocab-size", type=int, default=None)
     train.add_argument("--graph-window-size", type=int, default=4)
     train.add_argument("--graph-min-count", type=int, default=1)
+    train.add_argument(
+        "--graph-weighting",
+        choices=["distance", "count", "raw", "pmi", "ppmi"],
+        default="distance",
+    )
+    train.add_argument("--graph-min-edge-weight", type=float, default=0.0)
+    train.add_argument("--graph-top-k", type=int, default=None)
+    train.add_argument("--graph-directed", action="store_true")
+    train.add_argument(
+        "--graph-scope",
+        choices=["corpus", "document", "sentence"],
+        default="document",
+    )
+    train.add_argument(
+        "--context-node-type",
+        choices=["none", "document", "sentence"],
+        default="none",
+    )
+    train.add_argument("--dynamic-graph", action="store_true")
+    train.add_argument("--tokenizer-type", choices=["word", "subword"], default="word")
     train.add_argument("--seed", type=int, default=0)
     train.add_argument(
         "--device",

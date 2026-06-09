@@ -1,0 +1,65 @@
+{
+  "training_config": {
+    "output_dir": "runs/ablation-mini/directed-ppmi",
+    "epochs": 3,
+    "batch_size": 2,
+    "learning_rate": 0.001,
+    "weight_decay": 0.01,
+    "validation_ratio": 0.1,
+    "block_size": 16,
+    "stride": null,
+    "min_freq": 1,
+    "max_vocab_size": null,
+    "graph_window_size": 4,
+    "graph_min_count": 1,
+    "graph_weighting": "ppmi",
+    "graph_min_edge_weight": 0.0,
+    "graph_top_k": null,
+    "graph_directed": true,
+    "graph_scope": "document",
+    "context_node_type": "none",
+    "dynamic_graph": false,
+    "tokenizer_type": "word",
+    "device": "cpu",
+    "seed": 0
+  },
+  "model_config": {
+    "vocab_size": 85,
+    "max_seq_len": 16,
+    "d_model": 32,
+    "n_heads": 4,
+    "n_layers": 1,
+    "dim_feedforward": 64,
+    "dropout": 0.1,
+    "graph_encoder": "gcn",
+    "graph_hidden_dim": 32,
+    "graph_heads": 4,
+    "fusion": "gated",
+    "fusion_layers": "input",
+    "graph_edge_types": 1,
+    "pad_token_id": 0
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 15.789111614227295,
+      "validation_loss": 14.281635284423828,
+      "perplexity": 1593805.7767035742
+    },
+    {
+      "epoch": 2,
+      "train_loss": 14.935466051101685,
+      "validation_loss": 13.592270851135254,
+      "perplexity": 799923.0792863864
+    },
+    {
+      "epoch": 3,
+      "train_loss": 13.911172866821289,
+      "validation_loss": 12.920478820800781,
+      "perplexity": 408594.6308004683
+    }
+  ],
+  "best_validation_loss": 12.920478820800781,
+  "best_perplexity": 408594.6308004683,
+  "checkpoint_dir": "runs/ablation-mini/directed-ppmi"
+}

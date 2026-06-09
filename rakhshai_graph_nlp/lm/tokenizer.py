@@ -1,4 +1,4 @@
-"""Persian word-level tokenizer for causal language modelling."""
+"""Persian word/subword tokenizer for causal language modelling."""
 
 from __future__ import annotations
 
@@ -31,6 +31,8 @@ class PersianTokenizer:
     keep_half_space: bool = True
     min_freq: int = 1
     max_vocab_size: int | None = None
+    tokenizer_type: str = "word"
+    subword_chunk_size: int = 3
     pad_token: str = "<pad>"
     unk_token: str = "<unk>"
     bos_token: str = "<bos>"
@@ -80,7 +82,25 @@ class PersianTokenizer:
         return " ".join(text.split())
 
     def tokenize(self, text: str) -> list[str]:
-        return TOKEN_PATTERN.findall(self.normalize(text))
+        words = TOKEN_PATTERN.findall(self.normalize(text))
+        if self.tokenizer_type == "word":
+            return words
+        if self.tokenizer_type != "subword":
+            raise ValueError("tokenizer_type must be one of: word, subword")
+        tokens: list[str] = []
+        for word in words:
+            tokens.extend(self._word_to_subwords(word))
+        return tokens
+
+    def _word_to_subwords(self, word: str) -> list[str]:
+        if len(word) <= self.subword_chunk_size + 1:
+            return [word]
+        first = word[: self.subword_chunk_size]
+        chunks = [
+            "##" + word[i : i + self.subword_chunk_size]
+            for i in range(self.subword_chunk_size, len(word), self.subword_chunk_size)
+        ]
+        return [first, *chunks]
 
     def fit(self, texts: Iterable[str]) -> "PersianTokenizer":
         counts: Counter[str] = Counter()
@@ -116,6 +136,14 @@ class PersianTokenizer:
             if skip_special_tokens and token in special:
                 continue
             tokens.append(token)
+        if self.tokenizer_type == "subword":
+            words: list[str] = []
+            for token in tokens:
+                if token.startswith("##") and words:
+                    words[-1] += token[2:]
+                else:
+                    words.append(token[2:] if token.startswith("##") else token)
+            tokens = words
         return " ".join(tokens).replace(" \u200c ", "\u200c")
 
     def to_dict(self) -> dict[str, object]:
@@ -124,6 +152,8 @@ class PersianTokenizer:
             "keep_half_space": self.keep_half_space,
             "min_freq": self.min_freq,
             "max_vocab_size": self.max_vocab_size,
+            "tokenizer_type": self.tokenizer_type,
+            "subword_chunk_size": self.subword_chunk_size,
             "special_tokens": {
                 "pad_token": self.pad_token,
                 "unk_token": self.unk_token,
@@ -146,6 +176,8 @@ class PersianTokenizer:
             keep_half_space=bool(data.get("keep_half_space", True)),
             min_freq=int(data.get("min_freq", 1)),
             max_vocab_size=data.get("max_vocab_size"),  # type: ignore[arg-type]
+            tokenizer_type=str(data.get("tokenizer_type", "word")),
+            subword_chunk_size=int(data.get("subword_chunk_size", 3)),
             pad_token=str(special.get("pad_token", "<pad>")),
             unk_token=str(special.get("unk_token", "<unk>")),
             bos_token=str(special.get("bos_token", "<bos>")),

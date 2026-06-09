@@ -10,7 +10,7 @@ from typing import Iterable
 import torch
 
 from .dataset import LMDataset, build_lm_dataloaders
-from .graph_builder import build_graph_lm_graph
+from .graph_builder import build_graph_lm_graph, build_graph_lm_graph_from_token_ids
 from .model import GenerationConfig, GraphCausalLM, GraphLMConfig, perplexity
 from .tokenizer import PersianTokenizer
 
@@ -29,6 +29,14 @@ class LMTrainingConfig:
     max_vocab_size: int | None = None
     graph_window_size: int = 4
     graph_min_count: int = 1
+    graph_weighting: str = "distance"
+    graph_min_edge_weight: float = 0.0
+    graph_top_k: int | None = None
+    graph_directed: bool = False
+    graph_scope: str = "document"
+    context_node_type: str = "none"
+    dynamic_graph: bool = False
+    tokenizer_type: str = "word"
     device: str = "cpu"
     seed: int = 0
 
@@ -69,12 +77,26 @@ class LMTrainer:
         for input_ids, labels in loader:
             input_ids = input_ids.to(self.device)
             labels = labels.to(self.device)
+            graph_data = self.graph_data
+            token_node_ids = self.token_node_ids
+            if self.config.dynamic_graph and self.model.config.graph_encoder != "none":
+                local_graph = build_graph_lm_graph_from_token_ids(
+                    input_ids.detach().cpu().tolist(),
+                    self.tokenizer,
+                    window_size=self.config.graph_window_size,
+                    weighting=self.config.graph_weighting,
+                    min_edge_weight=self.config.graph_min_edge_weight,
+                    top_k=self.config.graph_top_k,
+                    directed=True,
+                )
+                graph_data = local_graph.to_pyg_data().to(self.device)
+                token_node_ids = local_graph.token_node_ids(self.tokenizer.vocab_size).to(self.device)
             if training:
                 optimizer.zero_grad(set_to_none=True)
             output = self.model(
                 input_ids,
-                graph_data=self.graph_data,
-                token_node_ids=self.token_node_ids,
+                graph_data=graph_data,
+                token_node_ids=token_node_ids,
                 labels=labels,
             )
             loss = output["loss"]
@@ -154,6 +176,7 @@ def train_graph_lm(
     tokenizer = PersianTokenizer(
         min_freq=training_config.min_freq,
         max_vocab_size=training_config.max_vocab_size,
+        tokenizer_type=training_config.tokenizer_type,
     ).fit(corpus)
     dataset = LMDataset(
         corpus,
@@ -168,6 +191,12 @@ def train_graph_lm(
             tokenizer,
             window_size=training_config.graph_window_size,
             min_count=training_config.graph_min_count,
+            weighting=training_config.graph_weighting,
+            min_edge_weight=training_config.graph_min_edge_weight,
+            top_k=training_config.graph_top_k,
+            directed=training_config.graph_directed,
+            graph_scope=training_config.graph_scope,
+            context_node_type=training_config.context_node_type,
         )
     cfg = model_config or GraphLMConfig(
         vocab_size=tokenizer.vocab_size,
@@ -181,6 +210,7 @@ def train_graph_lm(
     cfg.graph_encoder = graph_encoder
     cfg.fusion = fusion
     cfg.pad_token_id = tokenizer.pad_id
+    cfg.graph_edge_types = 2 if training_config.context_node_type != "none" else 1
     model = GraphCausalLM(cfg)
     graph_config = (
         {

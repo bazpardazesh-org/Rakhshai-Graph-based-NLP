@@ -29,6 +29,8 @@ class GraphLMConfig:
     graph_hidden_dim: int = 128
     graph_heads: int = 4
     fusion: str = "gated"
+    fusion_layers: str = "input"
+    graph_edge_types: int = 1
     pad_token_id: int = 0
 
 
@@ -72,12 +74,25 @@ class RakhshaiGraphEncoder(nn.Module):
             raise ValueError("graph_encoder must be one of: gcn, graphsage, gat")
         self.encoder = encoder
         self.dropout = nn.Dropout(config.dropout)
+        self.edge_type_bias = (
+            nn.Embedding(config.graph_edge_types, 1)
+            if config.graph_edge_types > 1 and encoder == "gcn"
+            else None
+        )
 
     def forward(self, node_features: torch.Tensor, graph_data: Data) -> torch.Tensor:
         edge_index = graph_data.edge_index.to(node_features.device)
         edge_weight = getattr(graph_data, "edge_weight", None)
         if edge_weight is not None:
             edge_weight = edge_weight.to(node_features.device)
+        edge_type = getattr(graph_data, "edge_type", None)
+        if (
+            self.edge_type_bias is not None
+            and edge_weight is not None
+            and edge_type is not None
+        ):
+            edge_type = edge_type.to(node_features.device).clamp_min(0)
+            edge_weight = edge_weight * torch.sigmoid(self.edge_type_bias(edge_type).squeeze(-1))
 
         if self.encoder == "gcn":
             x = self.conv1(node_features, edge_index, edge_weight)
@@ -98,19 +113,35 @@ class GraphTokenFusion(nn.Module):
         self.fusion = config.fusion.lower()
         if self.fusion == "gated":
             self.gate = nn.Linear(config.d_model * 2, config.d_model)
+        elif self.fusion in {"context_gated", "contextual"}:
+            self.gate = nn.Sequential(
+                nn.Linear(config.d_model * 3, config.d_model),
+                nn.GELU(),
+                nn.Linear(config.d_model, config.d_model),
+            )
         elif self.fusion in {"add", "sum"}:
             self.gate = None
         else:
-            raise ValueError("fusion must be one of: gated, add")
+            raise ValueError("fusion must be one of: gated, context_gated, add")
+        self.norm = nn.LayerNorm(config.d_model)
 
     def forward(
         self,
         token_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,
+        context_embeddings: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if self.fusion in {"add", "sum"}:
             return token_embeddings + graph_embeddings
-        gate = torch.sigmoid(self.gate(torch.cat([token_embeddings, graph_embeddings], dim=-1)))
+        if self.fusion in {"context_gated", "contextual"}:
+            context = token_embeddings if context_embeddings is None else context_embeddings
+            gate_input = torch.cat([token_embeddings, graph_embeddings, context], dim=-1)
+            gate = torch.sigmoid(self.gate(gate_input))
+            fused = gate * token_embeddings + (1.0 - gate) * graph_embeddings
+            return self.norm(token_embeddings + fused)
+        else:
+            gate_input = torch.cat([token_embeddings, graph_embeddings], dim=-1)
+        gate = torch.sigmoid(self.gate(gate_input))
         return gate * token_embeddings + (1.0 - gate) * graph_embeddings
 
 
@@ -132,22 +163,27 @@ class GraphCausalLM(nn.Module):
             else RakhshaiGraphEncoder(config)
         )
         self.fusion = GraphTokenFusion(config)
-        layer = nn.TransformerEncoderLayer(
-            d_model=config.d_model,
-            nhead=config.n_heads,
-            dim_feedforward=config.dim_feedforward,
-            dropout=config.dropout,
-            batch_first=True,
-            activation="gelu",
+        self.transformer_layers = nn.ModuleList(
+            [
+                nn.TransformerEncoderLayer(
+                    d_model=config.d_model,
+                    nhead=config.n_heads,
+                    dim_feedforward=config.dim_feedforward,
+                    dropout=config.dropout,
+                    batch_first=True,
+                    activation="gelu",
+                )
+                for _ in range(config.n_layers)
+            ]
         )
-        self.transformer = nn.TransformerEncoder(layer, num_layers=config.n_layers)
+        self.final_norm = nn.LayerNorm(config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
         self.lm_head.weight = self.token_embedding.weight
         self.dropout = nn.Dropout(config.dropout)
 
     def _causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
         return torch.triu(
-            torch.full((seq_len, seq_len), float("-inf"), device=device),
+            torch.ones((seq_len, seq_len), dtype=torch.bool, device=device),
             diagonal=1,
         )
 
@@ -189,17 +225,19 @@ class GraphCausalLM(nn.Module):
         token_embeddings = self.token_embedding(input_ids)
         graph_table = self._graph_embedding_table(graph_data, token_node_ids)
         graph_embeddings = F.embedding(input_ids, graph_table)
-        if self.graph_encoder is None or graph_data is None or token_node_ids is None:
+        has_graph = self.graph_encoder is not None and graph_data is not None and token_node_ids is not None
+        if not has_graph:
             hidden = token_embeddings
         else:
             hidden = self.fusion(token_embeddings, graph_embeddings)
         hidden = self.dropout(hidden + self.position_embedding(positions))
         padding_mask = input_ids.eq(self.config.pad_token_id)
-        hidden = self.transformer(
-            hidden,
-            mask=self._causal_mask(seq_len, input_ids.device),
-            src_key_padding_mask=padding_mask,
-        )
+        mask = self._causal_mask(seq_len, input_ids.device)
+        for layer in self.transformer_layers:
+            if has_graph and self.config.fusion_layers == "all":
+                hidden = self.fusion(hidden, graph_embeddings, context_embeddings=hidden)
+            hidden = layer(hidden, src_mask=mask, src_key_padding_mask=padding_mask)
+        hidden = self.final_norm(hidden)
         logits = self.lm_head(hidden)
         output = {"logits": logits}
         if labels is not None:

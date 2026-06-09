@@ -24,6 +24,17 @@ def test_persian_tokenizer_normalizes_and_encodes():
     assert ids[-1] == tokenizer.eos_id
 
 
+def test_subword_tokenizer_splits_long_persian_words():
+    tokenizer = PersianTokenizer(tokenizer_type="subword", subword_chunk_size=3).fit(
+        ["دانش‌آموزان پژوهشگران"]
+    )
+
+    tokens = tokenizer.tokenize("دانش‌آموزان")
+
+    assert any(token.startswith("##") for token in tokens)
+    assert tokenizer.decode(tokenizer.encode("دانش‌آموزان")) != ""
+
+
 def test_lm_dataset_creates_next_token_targets():
     tokenizer = PersianTokenizer().fit(["من امروز به مدرسه رفتم"])
     dataset = LMDataset(["من امروز به مدرسه رفتم"], tokenizer, block_size=4)
@@ -62,6 +73,62 @@ def test_graph_lm_forward_shape():
     assert output["logits"].shape == (1, batch.size(1), tokenizer.vocab_size)
 
 
+def test_graph_builder_supports_ppmi_directed_pruned_context_graph():
+    texts = [
+        "مجلس قانون را تصویب کرد. دولت لایحه آورد.",
+        "مجلس درباره قانون تازه گفت.",
+    ]
+    tokenizer = PersianTokenizer().fit(texts)
+    graph = build_graph_lm_graph(
+        texts,
+        tokenizer,
+        window_size=2,
+        weighting="ppmi",
+        min_edge_weight=0.01,
+        top_k=2,
+        directed=True,
+        graph_scope="sentence",
+        context_node_type="sentence",
+    )
+    data = graph.to_pyg_data()
+
+    assert graph.graph.directed
+    assert graph.graph_config["weighting"] == "ppmi"
+    assert "sentence" in set(graph.graph.node_types or [])
+    assert data.edge_weight.numel() > 0
+    assert hasattr(data, "edge_type")
+
+
+def test_graph_lm_context_fusion_all_layers_forward_shape():
+    texts = ["مجلس قانون را تصویب کرد", "دولت لایحه جدید آورد"]
+    tokenizer = PersianTokenizer().fit(texts)
+    graph = build_graph_lm_graph(texts, tokenizer, window_size=2, directed=True)
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=6,
+            d_model=16,
+            n_heads=2,
+            n_layers=2,
+            dim_feedforward=32,
+            graph_encoder="gcn",
+            graph_hidden_dim=16,
+            fusion="context_gated",
+            fusion_layers="all",
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+    batch = torch.tensor([tokenizer.encode(texts[0])[:6]], dtype=torch.long)
+
+    output = model(
+        batch,
+        graph_data=graph.to_pyg_data(),
+        token_node_ids=graph.token_node_ids(tokenizer.vocab_size),
+    )
+
+    assert output["logits"].shape == (1, batch.size(1), tokenizer.vocab_size)
+
+
 def test_lm_cli_train_writes_complete_checkpoint(tmp_path):
     corpus = tmp_path / "corpus.txt"
     corpus.write_text(
@@ -82,7 +149,19 @@ def test_lm_cli_train_writes_complete_checkpoint(tmp_path):
             "--graph-encoder",
             "gcn",
             "--fusion",
-            "gated",
+            "context_gated",
+            "--fusion-layers",
+            "all",
+            "--tokenizer-type",
+            "subword",
+            "--graph-weighting",
+            "ppmi",
+            "--graph-directed",
+            "--graph-scope",
+            "sentence",
+            "--context-node-type",
+            "sentence",
+            "--dynamic-graph",
             "--epochs",
             "1",
             "--batch-size",

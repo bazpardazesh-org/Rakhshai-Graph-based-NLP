@@ -1,7 +1,7 @@
 """Graph language modelling components for Persian text."""
 
 from .dataset import LMDataset, build_lm_dataloaders
-from .graph_builder import GraphLMGraph, build_graph_lm_graph
+from .graph_builder import GraphLMGraph, build_graph_lm_graph, build_graph_lm_graph_from_token_ids
 from .model import GraphCausalLM, GraphLMConfig, GenerationConfig
 from .tokenizer import PersianTokenizer
 from .trainer import LMTrainer, LMTrainingConfig
@@ -12,6 +12,7 @@ __all__ = [
     "build_lm_dataloaders",
     "GraphLMGraph",
     "build_graph_lm_graph",
+    "build_graph_lm_graph_from_token_ids",
     "GraphCausalLM",
     "GraphLMConfig",
     "GenerationConfig",

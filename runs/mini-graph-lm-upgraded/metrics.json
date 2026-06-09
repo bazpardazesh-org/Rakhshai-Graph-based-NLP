@@ -1,0 +1,59 @@
+{
+  "training_config": {
+    "output_dir": "runs/mini-graph-lm-upgraded",
+    "epochs": 2,
+    "batch_size": 2,
+    "learning_rate": 0.001,
+    "weight_decay": 0.01,
+    "validation_ratio": 0.1,
+    "block_size": 16,
+    "stride": null,
+    "min_freq": 1,
+    "max_vocab_size": null,
+    "graph_window_size": 4,
+    "graph_min_count": 1,
+    "graph_weighting": "ppmi",
+    "graph_min_edge_weight": 0.0,
+    "graph_top_k": null,
+    "graph_directed": true,
+    "graph_scope": "sentence",
+    "context_node_type": "sentence",
+    "dynamic_graph": true,
+    "tokenizer_type": "subword",
+    "device": "cpu",
+    "seed": 0
+  },
+  "model_config": {
+    "vocab_size": 136,
+    "max_seq_len": 16,
+    "d_model": 32,
+    "n_heads": 4,
+    "n_layers": 2,
+    "dim_feedforward": 64,
+    "dropout": 0.1,
+    "graph_encoder": "gcn",
+    "graph_hidden_dim": 32,
+    "graph_heads": 4,
+    "fusion": "context_gated",
+    "fusion_layers": "all",
+    "graph_edge_types": 2,
+    "pad_token_id": 0
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 18.88065306345622,
+      "validation_loss": 17.348787307739258,
+      "perplexity": 34235966.714257605
+    },
+    {
+      "epoch": 2,
+      "train_loss": 16.757047176361084,
+      "validation_loss": 15.665196418762207,
+      "perplexity": 6357821.967743283
+    }
+  ],
+  "best_validation_loss": 15.665196418762207,
+  "best_perplexity": 6357821.967743283,
+  "checkpoint_dir": "runs/mini-graph-lm-upgraded"
+}

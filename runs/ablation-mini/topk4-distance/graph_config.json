@@ -1,0 +1,15 @@
+{
+  "window_size": 4,
+  "min_count": 1,
+  "weighting": "distance",
+  "min_edge_weight": 0.0,
+  "top_k": 4,
+  "directed": false,
+  "graph_scope": "document",
+  "context_node_type": "none",
+  "num_nodes": 81,
+  "num_edges": 162,
+  "edge_types": {
+    "cooccurrence": 0
+  }
+}
