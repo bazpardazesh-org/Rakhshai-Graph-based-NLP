@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,9 @@ from .features.pyg_data import graph_to_data
 from .features.tokenizer import tokenize
 from .graphs.graph import Graph
 from .graphs.text_graph import build_text_graph
+from .lm.graph_builder import build_graph_lm_graph
+from .lm.model import GraphCausalLM, GraphLMConfig
+from .lm.trainer import LMTrainingConfig, train_graph_lm
 from .metrics import accuracy, macro_f1
 from .tasks.classification import train_node_classifier
 from .utils.logging import setup_logger
@@ -173,6 +177,96 @@ def _evaluate_split(
     }
 
 
+def _load_corpus(path: str) -> list[str]:
+    corpus_path = Path(path)
+    with corpus_path.open(encoding="utf-8") as f:
+        texts = [line.strip() for line in f if line.strip()]
+    if not texts:
+        raise ValueError("corpus file is empty")
+    return texts
+
+
+def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
+    if args.d_model % args.n_heads != 0:
+        raise ValueError("--d-model must be divisible by --n-heads")
+    device = "cuda" if args.device == "cuda" and torch.cuda.is_available() else "cpu"
+    training_config = LMTrainingConfig(
+        output_dir=args.output_dir,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        validation_ratio=args.validation_ratio,
+        block_size=args.block_size,
+        stride=args.stride,
+        min_freq=args.min_freq,
+        max_vocab_size=args.max_vocab_size,
+        graph_window_size=args.graph_window_size,
+        graph_min_count=args.graph_min_count,
+        device=device,
+        seed=args.seed,
+    )
+    return train_graph_lm(
+        _load_corpus(args.corpus),
+        training_config=training_config,
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=args.block_size,
+            d_model=args.d_model,
+            n_heads=args.n_heads,
+            n_layers=args.n_layers,
+            dim_feedforward=args.dim_feedforward,
+            dropout=args.dropout,
+            graph_encoder=args.graph_encoder,
+            graph_hidden_dim=args.graph_hidden_dim,
+            graph_heads=args.graph_heads,
+            fusion=args.fusion,
+        ),
+        graph_encoder=args.graph_encoder,
+        fusion=args.fusion,
+    )
+
+
+def _run_generate(args: argparse.Namespace) -> str:
+    device = torch.device(
+        "cuda" if args.device == "cuda" and torch.cuda.is_available() else "cpu"
+    )
+    model, tokenizer, generation_config, graph_config = GraphCausalLM.from_pretrained(
+        args.model,
+        map_location=device,
+    )
+    if args.min_new_tokens is not None:
+        generation_config.min_new_tokens = args.min_new_tokens
+    if args.temperature is not None:
+        generation_config.temperature = args.temperature
+    if args.top_k is not None:
+        generation_config.top_k = args.top_k
+    if args.repetition_penalty is not None:
+        generation_config.repetition_penalty = args.repetition_penalty
+    model.to(device)
+    corpus_path = Path(args.model) / "corpus.txt"
+    if model.config.graph_encoder != "none" and corpus_path.exists():
+        graph = build_graph_lm_graph(
+            _load_corpus(str(corpus_path)),
+            tokenizer,
+            window_size=int(graph_config.get("window_size", 4)),
+            min_count=int(graph_config.get("min_count", 1)),
+        )
+        graph_data = graph.to_pyg_data().to(device)
+        token_node_ids = graph.token_node_ids(tokenizer.vocab_size).to(device)
+    else:
+        graph_data = None
+        token_node_ids = None
+    return model.generate(
+        args.prompt,
+        tokenizer,
+        graph_data=graph_data,
+        token_node_ids=token_node_ids,
+        generation_config=generation_config,
+        max_new_tokens=args.max_new_tokens,
+    )
+
+
 def _run_dataset_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     device = "cuda" if args.device == "cuda" and torch.cuda.is_available() else "cpu"
     texts, raw_labels = _load_text_dataset(
@@ -270,7 +364,78 @@ def _run_dataset_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_lm_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Train Graph-LM models and generate Persian text.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    train = subparsers.add_parser(
+        "lm-train",
+        help="Train a Persian Graph causal language model",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    train.add_argument(
+        "--corpus",
+        required=True,
+        help="Plain text corpus, one sample per line",
+    )
+    train.add_argument("--output-dir", default="runs/graph-lm")
+    train.add_argument(
+        "--graph-encoder",
+        choices=["none", "gcn", "graphsage", "gat"],
+        default="gat",
+    )
+    train.add_argument("--fusion", choices=["gated", "add"], default="gated")
+    train.add_argument("--d-model", type=int, default=128)
+    train.add_argument("--n-heads", type=int, default=4)
+    train.add_argument("--n-layers", type=int, default=2)
+    train.add_argument("--dim-feedforward", type=int, default=512)
+    train.add_argument("--dropout", type=float, default=0.1)
+    train.add_argument("--graph-hidden-dim", type=int, default=128)
+    train.add_argument("--graph-heads", type=int, default=4)
+    train.add_argument("--epochs", type=int, default=3)
+    train.add_argument("--batch-size", type=int, default=8)
+    train.add_argument("--learning-rate", type=float, default=3e-4)
+    train.add_argument("--weight-decay", type=float, default=0.01)
+    train.add_argument("--validation-ratio", type=float, default=0.1)
+    train.add_argument("--block-size", type=int, default=128)
+    train.add_argument("--stride", type=int, default=None)
+    train.add_argument("--min-freq", type=int, default=1)
+    train.add_argument("--max-vocab-size", type=int, default=None)
+    train.add_argument("--graph-window-size", type=int, default=4)
+    train.add_argument("--graph-min-count", type=int, default=1)
+    train.add_argument("--seed", type=int, default=0)
+    train.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default="cuda" if torch.cuda.is_available() else "cpu",
+    )
+    train.add_argument("--log-level", default="INFO")
+
+    generate = subparsers.add_parser(
+        "generate",
+        help="Generate text from a saved Graph-LM checkpoint",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    generate.add_argument("--model", required=True, help="Directory containing Graph-LM files")
+    generate.add_argument("--prompt", required=True)
+    generate.add_argument("--max-new-tokens", type=int, default=None)
+    generate.add_argument("--min-new-tokens", type=int, default=None)
+    generate.add_argument("--temperature", type=float, default=None)
+    generate.add_argument("--top-k", type=int, default=None)
+    generate.add_argument("--repetition-penalty", type=float, default=None)
+    generate.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default="cuda" if torch.cuda.is_available() else "cpu",
+    )
+    generate.add_argument("--log-level", default="INFO")
+    return parser
+
+
+def _build_classification_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Train and evaluate graph-based Persian text classifiers, or run a "
@@ -405,6 +570,38 @@ def main(argv: list[str] | None = None) -> int:
         default="cuda" if torch.cuda.is_available() else "cpu",
         help="Training device; cuda falls back to cpu when unavailable",
     )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in {"lm-train", "generate"}:
+        parser = _build_lm_parser()
+        args = parser.parse_args(argv)
+        logger = setup_logger(args.log_level)
+        set_seed(getattr(args, "seed", 0))
+        if args.device == "cuda" and not torch.cuda.is_available():
+            logger.warning("CUDA requested but unavailable; falling back to CPU")
+            args.device = "cpu"
+        if args.command == "lm-train":
+            metrics = _run_lm_train(args)
+            logger.info(
+                "graph_lm checkpoint=%s validation_loss=%.3f perplexity=%.3f",
+                metrics["checkpoint_dir"],
+                metrics["best_validation_loss"],
+                metrics["best_perplexity"],
+            )
+            corpus_copy = Path(args.output_dir) / "corpus.txt"
+            corpus_copy.write_text(
+                "\n".join(_load_corpus(args.corpus)) + "\n",
+                encoding="utf-8",
+            )
+            return 0
+        generated = _run_generate(args)
+        print(generated)
+        return 0
+
+    parser = _build_classification_parser()
     config_args, _ = parser.parse_known_args(argv)
     parser.set_defaults(**_load_config(config_args.config))
     args = parser.parse_args(argv)

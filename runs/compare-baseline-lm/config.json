@@ -1,0 +1,14 @@
+{
+  "vocab_size": 420,
+  "max_seq_len": 24,
+  "d_model": 64,
+  "n_heads": 4,
+  "n_layers": 2,
+  "dim_feedforward": 128,
+  "dropout": 0.0,
+  "graph_encoder": "none",
+  "graph_hidden_dim": 64,
+  "graph_heads": 4,
+  "fusion": "gated",
+  "pad_token_id": 0
+}

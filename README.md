@@ -15,6 +15,20 @@
 پیش‌بینی روی متن جدید و ذخیره/بارگذاری مدل. هدف رخشای این است که پلی عملی میان
 زبان فارسی، مدل‌سازی گرافی و یادگیری عمیق گرافی ایجاد کند.
 
+از نسخهٔ جدید، رخشای فقط یک ابزار طبقه‌بندی گرافی نیست؛ یک مسیر واقعی
+**Persian Graph-LM** هم دارد. در این مسیر، متن فارسی به توکن عددی تبدیل
+می‌شود، از همان corpus گراف هم‌رخدادی واژگان ساخته می‌شود، GNN روی گراف
+embedding گرافی تولید می‌کند، و سپس embedding توکن و embedding گراف با
+**Gated Graph-Token Fusion** درون یک Transformer causal language model ترکیب
+می‌شوند. خروجی این مدل `batch × sequence × vocab_size` است و برای پیش‌بینی
+توکن بعدی و تولید متن فارسی طراحی شده است.
+
+در آزمایش اولیه روی یک corpus فارسی توسعه‌یافته، مسیر `Graph-LM / GCN + gated`
+نسبت به baseline بدون گراف perplexity پایین‌تری گرفت. این نتیجه نشان می‌دهد
+که استفاده از رابطه‌های واژگانی گرافی می‌تواند در این setup به پیش‌بینی بهتر
+توکن بعدی کمک کند؛ با این حال این مسیر هنوز experimental است و کیفیت نهایی
+به اندازه داده، تنظیمات آموزش و ارزیابی‌های بزرگ‌تر وابسته است.
+
 
 این کتابخانه متن‌باز توسط تیم توسعه [RakhshAI](https://rakhshai.com/) وابسته به
 شرکت آریا هامان مهر پارسه ایجاد و توسعه داده شده و تحت مجوز MIT منتشر می‌شود.
@@ -40,6 +54,120 @@
   نفرت‌پراکنی و تحلیل شبکه.
 - **رابط خط فرمان:** با `rgnn-cli` می‌توانید بدون نوشتن کد زیاد، روی فایل
   CSV/TSV/JSONL آموزش و ارزیابی انجام دهید.
+- **Graph-LM فارسی با معماری اختصاصی Rakhshai:** مسیر `lm-train` یک tokenizer
+  فارسی، graph builder، GNN encoder، gated graph-token fusion، Transformer
+  causal LM، trainer مخصوص LM، perplexity، checkpoint کامل و تولید متن را
+  کنار هم قرار می‌دهد.
+- **Baseline بدون گراف برای مقایسه منصفانه:** با `--graph-encoder none` می‌توانید
+  همان Transformer causal LM را بدون GNN و fusion آموزش دهید و اثر واقعی گراف را
+  با validation loss و perplexity بسنجید.
+- **تولید متن قابل کنترل:** دستور `generate` از گزینه‌هایی مثل `--temperature`،
+  `--top-k`، `--min-new-tokens` و `--repetition-penalty` پشتیبانی می‌کند.
+
+## امضای فنی Graph-LM رخشای
+
+معماری جدید Graph-LM در رخشای این مسیر را پیاده‌سازی می‌کند:
+
+```text
+Persian Text
+→ PersianTokenizer
+→ LM Dataset
+→ Token Co-occurrence Graph
+→ Rakhshai Graph Encoder (GCN / GraphSAGE / GAT)
+→ Gated Graph-Token Fusion
+→ Transformer Causal LM
+→ Text Generation
+```
+
+امضای فنی پروژه در این بخش:
+
+```text
+Rakhshai Graph Encoder
++
+Gated Graph-Token Fusion
++
+Persian Causal LM
+```
+
+به زبان ساده، رخشای می‌تواند به جای یک مدل زبانی صرفاً دنباله‌ای، از رابطهٔ
+گرافی واژه‌ها هم استفاده کند. مدل هنگام ساخت embedding نهایی هر توکن یاد
+می‌گیرد چقدر به embedding متنی و چقدر به embedding گرافی اعتماد کند؛ یعنی
+ترکیب به صورت ثابت و دستی نیست، بلکه با gate قابل یادگیری انجام می‌شود.
+
+## نتیجهٔ اولیه Graph-LM
+
+برای اعتبارسنجی مسیر جدید، یک corpus فارسی توسعه‌یافته ساخته شد و دو مدل با
+شرایط مشابه مقایسه شدند: مدل گرافی `Graph-LM / GCN + gated` و baseline بدون
+گراف. نتیجهٔ آزمایش کوچک اولیه:
+
+| مدل | best validation loss | best perplexity |
+| --- | ---: | ---: |
+| `Graph-LM / GCN + gated` | 7.2040 | 1344.7671 |
+| `Baseline / no graph` | 7.3994 | 1634.9926 |
+
+در این اجرا، Graph-LM حدود ۱۸٪ perplexity پایین‌تری نسبت به baseline بدون گراف
+داشت. 
+
+نمونهٔ خروجی تولید متن با corpus کوچک‌تر از مدل‌های بزرگ:
+
+```text
+prompt: امروز در تهران
+output: امروز در تهران باران آرامی بارید و خیابان‌ها خلوت‌تر از روزهای گذشته بودند ...
+```
+
+برای نتیجهٔ علمی‌تر، پیشنهاد می‌شود همین آزمایش با چند seed، چند graph encoder
+مثل `GCN`، `GAT` و `GraphSAGE`، و چند روش fusion مثل `gated` و `additive`
+تکرار شود.
+
+## نمونه دیتاست آماده برای تست Graph-LM
+
+یک نمونه آماده از Persian Wikipedia برای تست سریع Graph-LM در مسیر زیر قرار دارد:
+
+```text
+data/wiki_fa_50k.txt
+```
+
+اگر نمی‌خواهید دیتاست را جداگانه دانلود کنید، می‌توانید مستقیم با همین فایل
+آموزش و تولید متن را تست بگیرید. برای ساخت دوباره همین فایل، یا بزرگ‌تر کردن
+نمونه، از اسکریپت زیر استفاده کنید:
+
+```bash
+python scripts/download_fa_wiki_sample.py \
+  --output data/wiki_fa_50k.txt \
+  --max-rows 50000 \
+  --min-length 200
+```
+
+نمونه اجرای baseline بدون گراف:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/wiki_fa_50k.txt \
+  --graph-encoder none \
+  --output-dir runs/wiki-baseline-lm
+```
+
+نمونه اجرای Graph-LM با GAT و fusion دروازه‌ای:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/wiki_fa_50k.txt \
+  --graph-encoder gat \
+  --fusion gated \
+  --output-dir runs/wiki-graph-lm
+```
+
+نمونه تولید متن از مدل Graph-LM:
+
+```bash
+rgnn-cli generate \
+  --model runs/wiki-graph-lm \
+  --prompt "امروز در تهران" \
+  --max-new-tokens 100 \
+  --temperature 0.8 \
+  --top-k 50 \
+  --repetition-penalty 1.2
+```
 
 ## چرا گراف؟
 
@@ -68,6 +196,12 @@
 | `build_semantic_graph` | ساخت گراف معنایی از روابط واژگانی و شباهت embedding |
 | `build_semantic_graph_from_farsnet` | ساخت گراف معنایی از خروجی JSON/CSV/TSV مربوط به FarsNet |
 | `load_farsnet_relations` | خواندن روابط FarsNet از فایل و تبدیل آن به روابط قابل استفاده در گراف |
+| `PersianTokenizer` | tokenizer عددی مخصوص LM با پشتیبانی از نیم‌فاصله، تمیزسازی فارسی و نرمال‌سازی «ی/ي» و «ک/ك» |
+| `LMDataset` | آماده‌سازی `input_ids` و `target_ids` برای پیش‌بینی توکن بعدی |
+| `build_graph_lm_graph` | ساخت گراف هم‌رخدادی واژگان از corpus برای Graph-LM |
+| `GraphCausalLM` | مدل زبانی فارسی با GNN encoder، gated graph-token fusion و Transformer causal LM |
+| `--graph-encoder none` | baseline بدون گراف برای مقایسه با Graph-LM و سنجش اثر واقعی GNN/fusion |
+| `LMTrainer` | trainer مخصوص LM با validation loss، perplexity و checkpoint کامل |
 | `GCNClassifier` | مدل GCN برای طبقه‌بندی گره‌ها |
 | `GraphSAGEClassifier` | مدل GraphSAGE برای یادگیری از ساختار همسایگی |
 | `GATClassifier` | مدل GAT با مکانیزم attention روی گراف |
@@ -229,11 +363,73 @@ print(loaded.predict(["مجلس درباره قانون جدید بحث کرد"]
 
 ## رابط خط فرمان
 
-ابزار `rgnn-cli` برای اجرای سریع مسیر طبقه‌بندی متن فارسی مبتنی بر گراف است.
-اگر `--dataset` ندهید، یک آزمایش داخلی کوچک اجرا می‌شود تا نصب و مدل پایه
-را smoke test کنید. اگر دیتاست بدهید، CLI متن‌ها را می‌خواند، گراف واژه-سند
-می‌سازد، یکی از مدل‌های `gcn`، `graphsage` یا `gat` را آموزش می‌دهد و
-گزارش train/validation/test می‌نویسد.
+ابزار `rgnn-cli` دو مسیر اصلی دارد: مسیر قدیمی و پایدار طبقه‌بندی متن فارسی
+مبتنی بر گراف، و مسیر جدید Graph-LM برای آموزش مدل زبانی فارسی گراف‌محور.
+اگر subcommand ندهید، همان مسیر طبقه‌بندی اجرا می‌شود. برای LM از
+`lm-train` و `generate` استفاده کنید.
+
+آموزش Graph-LM:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/expanded_persian_lm.txt \
+  --graph-encoder gcn \
+  --fusion gated \
+  --output-dir runs/graph-lm
+```
+
+آموزش baseline بدون گراف برای مقایسه:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/expanded_persian_lm.txt \
+  --graph-encoder none \
+  --output-dir runs/baseline-lm
+```
+
+تولید متن با checkpoint ذخیره‌شده:
+
+```bash
+rgnn-cli generate \
+  --model runs/graph-lm \
+  --prompt "امروز در تهران" \
+  --max-new-tokens 100 \
+  --min-new-tokens 20 \
+  --temperature 0.8 \
+  --top-k 50 \
+  --repetition-penalty 1.2
+```
+
+خروجی checkpoint مدل زبانی کامل است و فقط به `model.pt` محدود نمی‌شود:
+
+```text
+runs/graph-lm/
+├── model.pt
+├── config.json
+├── tokenizer.json
+├── graph_config.json
+├── generation_config.json
+├── metrics.json
+└── corpus.txt
+```
+
+گزینه‌های مهم مسیر Graph-LM:
+
+| گزینه | کاربرد |
+| --- | --- |
+| `--corpus` | مسیر فایل متن خام فارسی برای آموزش LM |
+| `--graph-encoder` | انتخاب `gcn`، `gat`، `graphsage` یا `none` برای baseline بدون گراف |
+| `--fusion` | انتخاب روش ترکیب embedding متنی و گرافی، مثل `gated` |
+| `--output-dir` | مسیر ذخیره checkpoint، configها، tokenizer و گزارش‌ها |
+| `--temperature` | کنترل تصادفی‌بودن تولید متن؛ مقدار کمتر خروجی محافظه‌کارتر می‌دهد |
+| `--top-k` | محدودکردن نمونه‌گیری به k توکن محتمل‌تر |
+| `--min-new-tokens` | حداقل تعداد توکن جدید در تولید متن |
+| `--repetition-penalty` | کاهش تکرار توکن‌ها در خروجی generate |
+
+در مسیر طبقه‌بندی، اگر `--dataset` ندهید، یک آزمایش داخلی کوچک اجرا می‌شود
+تا نصب و مدل پایه را smoke test کنید. اگر دیتاست بدهید، CLI متن‌ها را
+می‌خواند، گراف واژه-سند می‌سازد، یکی از مدل‌های `gcn`، `graphsage` یا `gat`
+را آموزش می‌دهد و گزارش train/validation/test می‌نویسد.
 
 اجرای آزمایش داخلی کوچک:
 
@@ -472,6 +668,7 @@ rakhshai_graph_nlp/
 ├── features/        # توکنایز، پیش‌پردازش و تبدیل به PyG
 ├── graphs/          # توابع ساخت گراف
 ├── models/          # مدل‌های GNN
+├── lm/              # PersianTokenizer، LMDataset، GraphCausalLM، LMTrainer و generate
 ├── tasks/           # وظایف کاربردی
 ├── explain/         # ابزارهای تبیین اولیه
 ├── metrics.py       # معیارهای ارزیابی
@@ -482,6 +679,30 @@ benchmarks/          # دیتاست‌های کوچک قابل تکرار
 docs/                # مستندات MkDocs
 tests/               # تست‌های واحد و end-to-end
 ```
+
+## benchmark اولیه Graph-LM
+
+برای بررسی مسیر Graph-LM، یک corpus فارسی توسعه‌یافته در `data/expanded_persian_lm.txt`
+استفاده شد. این corpus شامل جمله‌هایی درباره شهر، سیاست، آموزش، اقتصاد، ورزش،
+هنر و خود معماری Graph-LM است تا رابطه‌های واژگانی مثل `مجلس/قانون`،
+`تهران/باران`، `مدرسه/دانش‌آموز` و `مدل/گراف/embedding` در گراف هم‌رخدادی
+قابل مشاهده باشند.
+
+مقایسهٔ اولیه:
+
+| مدل | best validation loss | best perplexity | مسیر خروجی |
+| --- | ---: | ---: | --- |
+| `Graph-LM / GCN + gated` | 7.2040 | 1344.7671 | `runs/compare-graph-lm` |
+| `Baseline / no graph` | 7.3994 | 1634.9926 | `runs/compare-baseline-lm` |
+
+نمونه تولید متن با مدل demo:
+
+```text
+prompt: امروز در تهران
+output: امروز در تهران باران آرامی بارید و خیابان‌ها خلوت‌تر از روزهای گذشته بودند ...
+```
+
+این benchmark کوچک برای اثبات مسیر و مقایسهٔ اولیه است. 
 
 ## benchmarkهای قابل تکرار
 
@@ -604,6 +825,10 @@ python -m rakhshai_graph_nlp.cli \
 
 - `build_text_graph` از ماتریس dense استفاده می‌کند و برای مجموعه‌های خیلی
   بزرگ می‌تواند از نظر حافظه محدود شود.
+- مسیر Graph-LM فعلاً experimental است. benchmark اولیه نشان‌دهندهٔ درست‌بودن
+  pipeline و اثر مثبت اولیهٔ گراف است، نه کیفیت نهایی در سطح LLMهای بزرگ.
+- کیفیت تولید متن در Graph-LM به اندازه و تنوع corpus، تعداد epoch، tokenizer،
+  تنظیمات sampling و انتخاب graph encoder/fusion وابسته است.
 - کیفیت خروجی مدل‌ها به کیفیت داده، توکن‌سازی و تنظیمات آموزش وابسته است.
 - `HateSpeechDetector` برای کاربرد حساس باید با دادهٔ واقعی، بررسی خطا و
   کنترل bias آموزش داده شود.
@@ -616,5 +841,8 @@ python -m rakhshai_graph_nlp.cli \
 - **GCN / GraphSAGE / GAT:** مدل‌های شبکهٔ عصبی گرافی برای انتشار و تجمیع
   اطلاعات در گراف.
 - **TextRank:** رتبه‌بندی جمله‌ها یا واژه‌ها با PageRank روی گراف شباهت.
+- **Causal Language Modeling:** آموزش مدل برای پیش‌بینی توکن بعدی و تولید متن.
+- **Transformer Decoder:** هستهٔ مدل زبانی دنباله‌ای که با graph-token fusion
+  از embedding گرافی هم استفاده می‌کند.
 - **Stanza:** ابزار تحلیل زبانی برای tokenization، lemmatization و dependency
   parsing.
