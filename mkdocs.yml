@@ -1,6 +1,7 @@
 site_name: Rakhshai GNN
 nav:
   - Home: index.md
+  - Graph-LM V2 Architecture: graph_lm_v2.md
   - Persian Tokenizer: persian_tokenizer.md
   - Multi-Relation Persian Graph: multi_relation_persian_graph.md
   - Graph Reasoning Core: graph_reasoning_core.md

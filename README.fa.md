@@ -1,10 +1,11 @@
 [English](README.md) | فارسی
 
-#  نخستین چارچوب و فریم‌ورک یکپارچه Graph-based NLP برای زبان فارسی
+# رخشای Graph-based NLP نسخه ۲
 
 [![CI](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml)
 
-**Rakhshai Graph-based NLP**؛ از متن خام فارسی تا شبکه‌های عصبی گرافی.
+**Rakhshai Graph-based NLP V2**؛ از متن خام فارسی تا شبکه‌های عصبی گرافی و
+Persian Graph-LM.
 
 رخشای نخستین فریم‌ورک یکپارچه NLP گراف‌محور برای زبان فارسی است؛ چارچوبی کاربردی
 که متن خام فارسی را به گراف‌های قابل تحلیل و قابل یادگیری تبدیل می‌کند. این پروژه
@@ -17,7 +18,7 @@
 پیش‌بینی روی متن جدید و ذخیره/بارگذاری مدل. هدف رخشای این است که پلی عملی میان
 زبان فارسی، مدل‌سازی گرافی و یادگیری عمیق گرافی ایجاد کند.
 
-از نسخهٔ جدید، رخشای فقط یک ابزار طبقه‌بندی گرافی نیست؛ یک مسیر واقعی
+در نسخهٔ ۲، رخشای فقط یک ابزار طبقه‌بندی گرافی نیست؛ یک مسیر واقعی
 **Persian Graph-LM** هم دارد. در این مسیر، متن فارسی به توکن عددی تبدیل
 می‌شود، از همان corpus گراف هم‌رخدادی واژگان ساخته می‌شود، GNN روی گراف
 embedding گرافی تولید می‌کند، و سپس embedding توکن و embedding گراف با
@@ -430,7 +431,7 @@ rgnn-cli lm-train \
   --corpus data/expanded_persian_lm.txt \
   --graph-encoder gcn \
   --graph-relations cooccurrence \
-  --output-dir runs/v1-simple-graph
+  --output-dir runs/simple-graph-baseline
 ```
 
 برای فعال‌کردن Graph Reasoning Core، می‌توانید relationها را به شکل

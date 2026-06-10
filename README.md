@@ -1,10 +1,11 @@
 English | [فارسی](README.fa.md)
 
-# The first integrated Graph-based NLP framework for Persian
+# Rakhshai Graph-based NLP V2
 
 [![CI](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml)
 
-**Rakhshai Graph-based NLP**: from raw Persian text to graph neural networks.
+**Rakhshai Graph-based NLP V2**: from raw Persian text to graph neural networks
+and Persian Graph-LM.
 
 Rakhshai is the first integrated graph-oriented NLP framework for Persian. It
 turns raw Persian text into graphs that can be analyzed, trained on, and used in
@@ -19,8 +20,8 @@ graph construction to training, evaluation, prediction on new text, and model
 save/load. Its goal is to create a practical bridge between Persian language
 processing, graph modeling, and deep graph learning.
 
-The newer version of Rakhshai is no longer only a graph classification toolkit;
-it also includes a real **Persian Graph-LM** path. In this path, Persian text is
+Rakhshai V2 is no longer only a graph classification toolkit; it also includes a
+real **Persian Graph-LM** path. In this path, Persian text is
 converted into numeric tokens, a word co-occurrence graph is built from the same
 corpus, a GNN produces graph embeddings, and token embeddings are combined with
 graph embeddings through **Gated Graph-Token Fusion** inside a Transformer causal
@@ -440,7 +441,7 @@ rgnn-cli lm-train \
   --corpus data/expanded_persian_lm.txt \
   --graph-encoder gcn \
   --graph-relations cooccurrence \
-  --output-dir runs/v1-simple-graph
+  --output-dir runs/simple-graph-baseline
 ```
 
 To enable Graph Reasoning Core, pass richer relations into the encoder. A light
