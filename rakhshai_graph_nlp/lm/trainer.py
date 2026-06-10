@@ -38,6 +38,10 @@ class LMTrainingConfig:
     context_node_type: str = "none"
     dynamic_graph: bool = False
     tokenizer_type: str = "word"
+    tokenizer_half_space: str = "preserve"
+    tokenizer_morph_splitting: bool = False
+    tokenizer_compound_verb_mode: str = "none"
+    tokenizer_bpe_merges: int = 200
     device: str = "cpu"
     seed: int = 0
 
@@ -232,6 +236,32 @@ def _split_corpus(
     return train, validation
 
 
+def _tokenizer_stats(
+    tokenizer: PersianTokenizer,
+    train_corpus: Sequence[str],
+    validation_corpus: Sequence[str],
+) -> dict[str, object]:
+    train_tokens = [token for text in train_corpus for token in tokenizer.tokenize(text)]
+    validation_tokens = [
+        token for text in validation_corpus for token in tokenizer.tokenize(text)
+    ]
+    unk_count = sum(1 for token in validation_tokens if token not in tokenizer.token_to_id)
+    validation_text_count = max(1, len(validation_corpus))
+    return {
+        "tokenizer_type": tokenizer.tokenizer_type,
+        "vocab_size": tokenizer.vocab_size,
+        "keep_half_space": tokenizer.keep_half_space,
+        "morph_splitting": tokenizer.morph_splitting,
+        "compound_verb_mode": tokenizer.compound_verb_mode,
+        "bpe_merges": len(tokenizer.bpe_merges),
+        "train_token_count": len(train_tokens),
+        "validation_token_count": len(validation_tokens),
+        "validation_unk_count": unk_count,
+        "validation_unk_rate": unk_count / max(1, len(validation_tokens)),
+        "avg_validation_tokens_per_text": len(validation_tokens) / validation_text_count,
+    }
+
+
 def train_graph_lm(
     texts: Iterable[str],
     *,
@@ -253,6 +283,10 @@ def train_graph_lm(
         min_freq=training_config.min_freq,
         max_vocab_size=training_config.max_vocab_size,
         tokenizer_type=training_config.tokenizer_type,
+        keep_half_space=training_config.tokenizer_half_space == "preserve",
+        morph_splitting=training_config.tokenizer_morph_splitting,
+        compound_verb_mode=training_config.tokenizer_compound_verb_mode,
+        bpe_num_merges=training_config.tokenizer_bpe_merges,
     ).fit(train_corpus)
     dataset = LMDataset(
         train_corpus,
@@ -321,4 +355,13 @@ def train_graph_lm(
         config=training_config,
         graph_config=graph_config,
     )
-    return trainer.train(dataset, validation_dataset)
+    metrics = trainer.train(dataset, validation_dataset)
+    metrics["tokenizer_stats"] = _tokenizer_stats(
+        tokenizer,
+        train_corpus,
+        validation_corpus,
+    )
+    metrics_path = Path(training_config.output_dir) / "metrics.json"
+    with metrics_path.open("w", encoding="utf-8") as f:
+        json.dump(metrics, f, ensure_ascii=False, indent=2)
+    return metrics

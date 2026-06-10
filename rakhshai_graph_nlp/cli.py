@@ -211,6 +211,10 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         context_node_type=args.context_node_type,
         dynamic_graph=args.dynamic_graph,
         tokenizer_type=args.tokenizer_type,
+        tokenizer_half_space=args.tokenizer_half_space,
+        tokenizer_morph_splitting=args.tokenizer_morph_splitting,
+        tokenizer_compound_verb_mode=args.tokenizer_compound_verb_mode,
+        tokenizer_bpe_merges=args.tokenizer_bpe_merges,
         device=device,
         seed=args.seed,
     )
@@ -454,7 +458,23 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         default="none",
     )
     train.add_argument("--dynamic-graph", action="store_true")
-    train.add_argument("--tokenizer-type", choices=["word", "subword"], default="word")
+    train.add_argument(
+        "--tokenizer-type",
+        choices=["word", "subword", "char_chunk", "bpe", "unigram"],
+        default="word",
+    )
+    train.add_argument(
+        "--tokenizer-half-space",
+        choices=["preserve", "split"],
+        default="preserve",
+    )
+    train.add_argument("--tokenizer-morph-splitting", action="store_true")
+    train.add_argument(
+        "--tokenizer-compound-verb-mode",
+        choices=["none", "join"],
+        default="none",
+    )
+    train.add_argument("--tokenizer-bpe-merges", type=int, default=200)
     train.add_argument("--seed", type=int, default=0)
     train.add_argument(
         "--device",

@@ -37,6 +37,68 @@ def test_subword_tokenizer_splits_long_persian_words():
     assert tokenizer.decode(tokenizer.encode("دانش‌آموزان")) != ""
 
 
+def test_persian_tokenizer_phase2_normalizer_and_digits():
+    tokenizer = PersianTokenizer().fit(["کلاس 123"])
+
+    assert tokenizer.normalize("كلاس ۱۲۳\u0640\u064E") == "کلاس 123"
+    assert tokenizer.tokenize("مي\u200c روم") == ["می\u200cروم"]
+
+
+def test_persian_tokenizer_morphology_and_compound_verbs():
+    tokenizer = PersianTokenizer(
+        morph_splitting=True,
+        compound_verb_mode="join",
+    ).fit(["می\u200cروم کتاب‌ها تصمیم گرفت"])
+
+    tokens = tokenizer.tokenize("نمی\u200cروم کتاب‌ها تصمیم گرفت")
+
+    assert "نمی" in tokens
+    assert "روم" in tokens
+    assert "کتاب" in tokens
+    assert "##ها" in tokens
+    assert "تصمیم\u200cگرفت" in tokens
+
+
+def test_bpe_tokenizer_learns_merges_and_round_trips(tmp_path):
+    tokenizer = PersianTokenizer(tokenizer_type="bpe", bpe_num_merges=20).fit(
+        ["دانشگاه دانشجو دانشمند", "دانشگاه تهران"]
+    )
+
+    tokens = tokenizer.tokenize("دانشگاه")
+    path = tmp_path / "tokenizer.json"
+    tokenizer.save(path)
+    loaded = PersianTokenizer.load(path)
+
+    assert tokenizer.bpe_merges
+    assert tokens
+    assert loaded.tokenizer_type == "bpe"
+    assert loaded.bpe_merges == tokenizer.bpe_merges
+    assert loaded.decode(loaded.encode("دانشگاه")) == "دانشگاه"
+
+
+def test_persian_tokenizer_loads_legacy_missing_type(tmp_path):
+    path = tmp_path / "legacy-tokenizer.json"
+    path.write_text(
+        json.dumps(
+            {
+                "token_to_id": {"<pad>": 0, "<unk>": 1, "<bos>": 2, "<eos>": 3},
+                "tokenizer_type": None,
+                "special_tokens": {
+                    "pad_token": "<pad>",
+                    "unk_token": "<unk>",
+                    "bos_token": "<bos>",
+                    "eos_token": "<eos>",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    tokenizer = PersianTokenizer.load(path)
+
+    assert tokenizer.tokenizer_type == "word"
+
+
 def test_lm_dataset_creates_next_token_targets():
     tokenizer = PersianTokenizer().fit(["من امروز به مدرسه رفتم"])
     dataset = LMDataset(["من امروز به مدرسه رفتم"], tokenizer, block_size=4)
@@ -327,6 +389,9 @@ def test_lm_cli_train_writes_complete_checkpoint(tmp_path):
             "all",
             "--tokenizer-type",
             "subword",
+            "--tokenizer-morph-splitting",
+            "--tokenizer-compound-verb-mode",
+            "join",
             "--graph-weighting",
             "ppmi",
             "--graph-directed",
@@ -357,3 +422,4 @@ def test_lm_cli_train_writes_complete_checkpoint(tmp_path):
         assert (output_dir / filename).exists()
     metrics = json.loads((output_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["history"][0]["perplexity"] > 0
+    assert metrics["tokenizer_stats"]["morph_splitting"] is True

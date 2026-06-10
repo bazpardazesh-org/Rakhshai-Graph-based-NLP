@@ -1,6 +1,7 @@
 site_name: Rakhshai GNN
 nav:
   - Home: index.md
+  - Persian Tokenizer: persian_tokenizer.md
 plugins:
   - search
   - mkdocstrings:

@@ -21,6 +21,8 @@ from __future__ import annotations
 import re
 from typing import List
 
+from .preprocessing import normalize_persian_text
+
 try:
     from naghz import Normalizer, Tokenizer  # type: ignore
     _naghz_available = True
@@ -56,9 +58,8 @@ def tokenize(text: str) -> List[str]:
         tokens = tok.tokenize(normalized)
         # Naghz returns tokens as dictionaries with 'text' field
         return [t["text"] if isinstance(t, dict) else str(t) for t in tokens]
-    # Fallback: simple regex splitting
-    # Replace half spaces with normal spaces
-    text = text.replace("\u200c", " ")
+    # Fallback: simple regex splitting after shared Persian normalization.
+    text = normalize_persian_text(text, half_space="split")
     # Remove diacritics and punctuation by spacing them out
     tokens = re.findall(r"[\w\d]+", text, flags=re.UNICODE)
     return tokens
