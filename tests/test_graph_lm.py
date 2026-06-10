@@ -557,6 +557,52 @@ def test_graph_lm_context_fusion_all_layers_forward_shape():
     assert output["logits"].shape == (1, batch.size(1), tokenizer.vocab_size)
 
 
+def test_phase5_adaptive_fusion_reports_multi_level_stats():
+    texts = [
+        "مجلس قانون را تصویب کرد",
+        "دولت لایحه جدید آورد",
+        "دانشگاه درباره کتابخانه گزارش داد",
+    ]
+    tokenizer = PersianTokenizer().fit(texts)
+    graph = build_graph_lm_graph(
+        texts,
+        tokenizer,
+        window_size=2,
+        graph_relations=["cooccurrence", "word_document", "topic_document"],
+        topic_top_k=2,
+    )
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=8,
+            d_model=16,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=32,
+            graph_encoder="gcn",
+            graph_hidden_dim=16,
+            fusion="context_gated",
+            fusion_levels="token,sentence,subgraph",
+            graph_fusion_scale=0.5,
+            graph_edge_types=len(graph.graph_config["edge_types"]),
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+    batch = torch.tensor([tokenizer.encode(texts[0])[:8]], dtype=torch.long)
+
+    output = model(
+        batch,
+        graph_data=graph.to_pyg_data(),
+        token_node_ids=graph.token_node_ids(tokenizer.vocab_size),
+    )
+
+    assert output["logits"].shape == (1, batch.size(1), tokenizer.vocab_size)
+    assert "fusion_stats" in output
+    assert "token_graph_share_mean" in output["fusion_stats"]
+    assert "sentence_graph_share_mean" in output["fusion_stats"]
+    assert "subgraph_graph_share_mean" in output["fusion_stats"]
+
+
 def test_lm_cli_train_writes_complete_checkpoint(tmp_path):
     corpus = tmp_path / "corpus.txt"
     corpus.write_text(
@@ -616,6 +662,70 @@ def test_lm_cli_train_writes_complete_checkpoint(tmp_path):
     metrics = json.loads((output_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["history"][0]["perplexity"] > 0
     assert metrics["tokenizer_stats"]["morph_splitting"] is True
+
+
+def test_lm_cli_train_accepts_phase5_adaptive_fusion_options(tmp_path):
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text(
+        "کتاب‌ها در کتابخانه ماندند\n"
+        "دانشجویان کتاب تازه خواندند\n"
+        "دانشگاه درباره کتابخانه گزارش داد\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "phase5-fusion-lm"
+
+    result = main(
+        [
+            "lm-train",
+            "--corpus",
+            str(corpus),
+            "--output-dir",
+            str(output_dir),
+            "--graph-encoder",
+            "gcn",
+            "--fusion",
+            "context_gated",
+            "--fusion-levels",
+            "token,sentence,subgraph",
+            "--graph-fusion-scale",
+            "0.75",
+            "--graph-fusion-dropout",
+            "0.1",
+            "--graph-relations",
+            "cooccurrence",
+            "word_document",
+            "topic_document",
+            "--topic-top-k",
+            "2",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "1",
+            "--block-size",
+            "8",
+            "--d-model",
+            "16",
+            "--n-heads",
+            "2",
+            "--n-layers",
+            "1",
+            "--dim-feedforward",
+            "32",
+            "--graph-hidden-dim",
+            "16",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    assert result == 0
+    model_config = json.loads((output_dir / "config.json").read_text(encoding="utf-8"))
+    metrics = json.loads((output_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert model_config["fusion_levels"] == "token,sentence,subgraph"
+    assert model_config["graph_fusion_scale"] == 0.75
+    assert model_config["graph_fusion_dropout"] == 0.1
+    assert "fusion_stats" in metrics
+    assert "subgraph_graph_share_mean" in metrics["fusion_stats"]
 
 
 def test_lm_cli_train_accepts_phase3_graph_relations(tmp_path):

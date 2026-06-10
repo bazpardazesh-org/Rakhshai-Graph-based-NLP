@@ -44,6 +44,9 @@ class LMTrainingConfig:
     graph_relation_mode: str = "bias"
     graph_pooling: str = "none"
     graph_node_importance: bool = False
+    fusion_levels: str = "token"
+    graph_fusion_scale: float = 1.0
+    graph_fusion_dropout: float = 0.0
     dynamic_graph: bool = False
     tokenizer_type: str = "word"
     tokenizer_half_space: str = "preserve"
@@ -81,6 +84,7 @@ class LMTrainer:
             self.graph_data = self.graph_data.to(self.device)
         if self.token_node_ids is not None:
             self.token_node_ids = self.token_node_ids.to(self.device)
+        self._last_fusion_stats: dict[str, float] = {}
 
     def _causal_dynamic_graph_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
         step_embeddings: list[torch.Tensor] = []
@@ -142,6 +146,8 @@ class LMTrainer:
         self.model.train(training)
         total_loss = 0.0
         total_batches = 0
+        fusion_sums: dict[str, float] = {}
+        fusion_count = 0
         for input_ids, labels in loader:
             input_ids = input_ids.to(self.device)
             labels = labels.to(self.device)
@@ -162,12 +168,22 @@ class LMTrainer:
                 labels=labels,
             )
             loss = output["loss"]
+            fusion_stats = output.get("fusion_stats", {})
+            if fusion_stats:
+                fusion_count += 1
+                for key, value in fusion_stats.items():
+                    fusion_sums[key] = fusion_sums.get(key, 0.0) + float(
+                        value.detach().cpu()
+                    )
             if training:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
                 optimizer.step()
             total_loss += float(loss.detach().cpu())
             total_batches += 1
+        self._last_fusion_stats = {
+            key: value / max(1, fusion_count) for key, value in fusion_sums.items()
+        }
         return total_loss / max(1, total_batches)
 
     def train(
@@ -188,17 +204,24 @@ class LMTrainer:
 
         for epoch in range(1, self.config.epochs + 1):
             train_loss = self._run_epoch(loaders.train, optimizer)
+            train_fusion_stats = dict(self._last_fusion_stats)
             if loaders.validation is not None:
                 with torch.no_grad():
                     val_loss = self._run_epoch(loaders.validation)
+                validation_fusion_stats = dict(self._last_fusion_stats)
             else:
                 val_loss = train_loss
+                validation_fusion_stats = train_fusion_stats
             row = {
                 "epoch": epoch,
                 "train_loss": train_loss,
                 "validation_loss": val_loss,
                 "perplexity": perplexity(val_loss),
             }
+            if train_fusion_stats:
+                row["train_fusion"] = train_fusion_stats
+            if validation_fusion_stats:
+                row["validation_fusion"] = validation_fusion_stats
             history.append(row)
             if val_loss <= best_val:
                 best_val = val_loss
@@ -219,6 +242,10 @@ class LMTrainer:
             "best_perplexity": perplexity(best_val),
             "checkpoint_dir": str(output_dir),
         }
+        if history:
+            last_validation_fusion = history[-1].get("validation_fusion")
+            if last_validation_fusion:
+                metrics["fusion_stats"] = last_validation_fusion
         with (output_dir / "metrics.json").open("w", encoding="utf-8") as f:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
         return metrics
@@ -348,6 +375,9 @@ def train_graph_lm(
     cfg.graph_relation_mode = training_config.graph_relation_mode
     cfg.graph_pooling = training_config.graph_pooling
     cfg.graph_node_importance = training_config.graph_node_importance
+    cfg.fusion_levels = training_config.fusion_levels
+    cfg.graph_fusion_scale = training_config.graph_fusion_scale
+    cfg.graph_fusion_dropout = training_config.graph_fusion_dropout
     cfg.graph_edge_types = (
         len(graph.graph_config.get("edge_types", {"cooccurrence": 0}))
         if graph is not None

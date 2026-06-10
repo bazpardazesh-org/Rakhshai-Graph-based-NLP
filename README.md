@@ -62,6 +62,10 @@ embedding گرافی تولید می‌کند، و سپس embedding توکن و 
   relation idهای فاز ۳ را با حالت‌های `bias`، `embedding` یا `rgcn` مصرف کند،
   از `RGCN` برای message passing رابطه‌محور استفاده کند، و به صورت اختیاری
   node importance و subgraph pooling داشته باشد.
+- **Adaptive Graph-Text Fusion:** مدل می‌تواند ترکیب متن و گراف را در سطح
+  `token`، `sentence` و `subgraph` کنترل کند. شدت استفاده از گراف با
+  scale/dropout تنظیم می‌شود و آمار gateها در `metrics.json` ذخیره می‌شود تا
+  معلوم شود مدل واقعاً کجا از گراف کمک گرفته است.
 - **Baseline بدون گراف برای مقایسه منصفانه:** با `--graph-encoder none` می‌توانید
   همان Transformer causal LM را بدون GNN و fusion آموزش دهید و اثر واقعی گراف را
   با validation loss و perplexity بسنجید.
@@ -78,7 +82,7 @@ Persian Text
 → LM Dataset
 → Multi-Relation Persian Graph
 → Rakhshai Graph Encoder (GCN / GraphSAGE / GAT / RGCN)
-→ Gated Graph-Token Fusion
+→ Adaptive Graph-Text Fusion
 → Transformer Causal LM
 → Text Generation
 ```
@@ -88,7 +92,7 @@ Persian Text
 ```text
 Rakhshai Graph Encoder
 +
-Gated Graph-Token Fusion
+Adaptive Graph-Text Fusion
 +
 Persian Causal LM
 ```
@@ -97,6 +101,9 @@ Persian Causal LM
 گرافی واژه‌ها هم استفاده کند. مدل هنگام ساخت embedding نهایی هر توکن یاد
 می‌گیرد چقدر به embedding متنی و چقدر به embedding گرافی اعتماد کند؛ یعنی
 ترکیب به صورت ثابت و دستی نیست، بلکه با gate قابل یادگیری انجام می‌شود.
+این gate می‌تواند در چند سطح فعال شود: سطح توکن برای هر جایگاه دنباله، سطح
+جمله برای کنترل شدت کلی گراف در context، و سطح subgraph برای تزریق خلاصه‌ای از
+nodeهای غیرتوکنی مانند سند یا topic.
 
 ## نتیجهٔ اولیه Graph-LM
 
@@ -423,6 +430,21 @@ rgnn-cli lm-train \
   --output-dir runs/phase4-rgcn
 ```
 
+برای فعال‌کردن Adaptive Graph-Text Fusion، سطح‌های fusion و شدت مصرف گراف را
+صریح تنظیم کنید:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/expanded_persian_lm.txt \
+  --graph-encoder gcn \
+  --fusion context_gated \
+  --fusion-levels token,sentence,subgraph \
+  --graph-fusion-scale 0.75 \
+  --graph-fusion-dropout 0.1 \
+  --graph-relations cooccurrence pmi stem word_document topic_document \
+  --output-dir runs/adaptive-fusion
+```
+
 آموزش baseline بدون گراف برای مقایسه:
 
 ```bash
@@ -470,6 +492,9 @@ runs/graph-lm/
 | `--graph-pooling` | pooling اختیاری روی subgraphها؛ یکی از `none`، `mean` یا `attention` |
 | `--graph-node-importance` | فعال‌کردن scorer داخلی برای تشخیص nodeهای مهم‌تر |
 | `--fusion` | انتخاب روش ترکیب embedding متنی و گرافی، مثل `gated` |
+| `--fusion-levels` | انتخاب سطح‌های fusion؛ مثل `token` یا `token,sentence,subgraph` |
+| `--graph-fusion-scale` | ضریب شدت embedding گرافی قبل از fusion |
+| `--graph-fusion-dropout` | dropout روی embedding گرافی برای کاهش وابستگی بیش از حد به گراف |
 | `--output-dir` | مسیر ذخیره checkpoint، configها، tokenizer و گزارش‌ها |
 | `--temperature` | کنترل تصادفی‌بودن تولید متن؛ مقدار کمتر خروجی محافظه‌کارتر می‌دهد |
 | `--top-k` | محدودکردن نمونه‌گیری به k توکن محتمل‌تر |

@@ -231,6 +231,9 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         graph_relation_mode=args.graph_relation_mode,
         graph_pooling=args.graph_pooling,
         graph_node_importance=args.graph_node_importance,
+        fusion_levels=args.fusion_levels,
+        graph_fusion_scale=args.graph_fusion_scale,
+        graph_fusion_dropout=args.graph_fusion_dropout,
         dynamic_graph=args.dynamic_graph,
         tokenizer_type=args.tokenizer_type,
         tokenizer_half_space=args.tokenizer_half_space,
@@ -259,6 +262,9 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
             graph_node_importance=args.graph_node_importance,
             fusion=args.fusion,
             fusion_layers=args.fusion_layers,
+            fusion_levels=args.fusion_levels,
+            graph_fusion_scale=args.graph_fusion_scale,
+            graph_fusion_dropout=args.graph_fusion_dropout,
         ),
         graph_encoder=args.graph_encoder,
         fusion=args.fusion,
@@ -453,6 +459,26 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--fusion", choices=["gated", "context_gated", "add"], default="gated")
     train.add_argument("--fusion-layers", choices=["input", "all"], default="input")
+    train.add_argument(
+        "--fusion-levels",
+        default="token",
+        help=(
+            "Comma-separated adaptive fusion levels: token, sentence, subgraph, "
+            "or all. Example: token,sentence,subgraph"
+        ),
+    )
+    train.add_argument(
+        "--graph-fusion-scale",
+        type=float,
+        default=1.0,
+        help="Multiplier for graph embeddings before fusion",
+    )
+    train.add_argument(
+        "--graph-fusion-dropout",
+        type=float,
+        default=0.0,
+        help="Dropout applied to graph embeddings inside fusion",
+    )
     train.add_argument("--d-model", type=int, default=128)
     train.add_argument("--n-heads", type=int, default=4)
     train.add_argument("--n-layers", type=int, default=2)

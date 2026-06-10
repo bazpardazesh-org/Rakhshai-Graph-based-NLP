@@ -33,6 +33,9 @@ class GraphLMConfig:
     graph_node_importance: bool = False
     fusion: str = "gated"
     fusion_layers: str = "input"
+    fusion_levels: str = "token"
+    graph_fusion_scale: float = 1.0
+    graph_fusion_dropout: float = 0.0
     graph_edge_types: int = 1
     pad_token_id: int = 0
 
@@ -316,11 +319,14 @@ class RakhshaiGraphEncoder(nn.Module):
 
 
 class GraphTokenFusion(nn.Module):
-    """Combine normal token embeddings with graph embeddings."""
+    """Adaptive multi-level graph-text fusion."""
 
     def __init__(self, config: GraphLMConfig):
         super().__init__()
         self.fusion = config.fusion.lower()
+        self.fusion_levels = self._parse_levels(config.fusion_levels)
+        self.graph_fusion_scale = float(config.graph_fusion_scale)
+        self.graph_dropout = nn.Dropout(config.graph_fusion_dropout)
         if self.fusion == "gated":
             self.gate = nn.Linear(config.d_model * 2, config.d_model)
         elif self.fusion in {"context_gated", "contextual"}:
@@ -333,26 +339,113 @@ class GraphTokenFusion(nn.Module):
             self.gate = None
         else:
             raise ValueError("fusion must be one of: gated, context_gated, add")
+        self.sentence_gate = nn.Linear(config.d_model * 2, config.d_model)
+        self.subgraph_gate = nn.Linear(config.d_model * 2, config.d_model)
         self.norm = nn.LayerNorm(config.d_model)
+
+    @staticmethod
+    def _parse_levels(raw_levels: str) -> set[str]:
+        aliases = {
+            "all": "token,sentence,subgraph",
+            "input": "token",
+            "tokens": "token",
+            "sent": "sentence",
+            "sentences": "sentence",
+            "graph": "subgraph",
+            "subgraphs": "subgraph",
+        }
+        levels = {
+            expanded
+            for part in raw_levels.replace("+", ",").split(",")
+            for expanded in aliases.get(
+                part.strip().lower(),
+                part.strip().lower(),
+            ).split(",")
+            if expanded
+        }
+        levels = {
+            level
+            for level in levels
+            if level.strip()
+        }
+        levels = levels or {"token"}
+        invalid = levels - {"token", "sentence", "subgraph"}
+        if invalid:
+            raise ValueError(
+                "fusion_levels must contain only: token, sentence, subgraph"
+            )
+        return levels
+
+    def _basic_fusion(
+        self,
+        token_embeddings: torch.Tensor,
+        graph_embeddings: torch.Tensor,
+        context_embeddings: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        if self.fusion in {"add", "sum"}:
+            return token_embeddings + graph_embeddings, None
+        if self.fusion in {"context_gated", "contextual"}:
+            context = (
+                token_embeddings if context_embeddings is None else context_embeddings
+            )
+            gate_input = torch.cat(
+                [token_embeddings, graph_embeddings, context],
+                dim=-1,
+            )
+            gate = torch.sigmoid(self.gate(gate_input))
+            fused = gate * token_embeddings + (1.0 - gate) * graph_embeddings
+            return self.norm(token_embeddings + fused), gate
+        gate_input = torch.cat([token_embeddings, graph_embeddings], dim=-1)
+        gate = torch.sigmoid(self.gate(gate_input))
+        return gate * token_embeddings + (1.0 - gate) * graph_embeddings, gate
+
+    @staticmethod
+    def _gate_stats(prefix: str, gate: torch.Tensor | None) -> dict[str, torch.Tensor]:
+        if gate is None:
+            return {}
+        graph_share = 1.0 - gate.detach()
+        return {
+            f"{prefix}_text_gate_mean": gate.detach().mean(),
+            f"{prefix}_graph_share_mean": graph_share.mean(),
+            f"{prefix}_graph_share_min": graph_share.min(),
+            f"{prefix}_graph_share_max": graph_share.max(),
+        }
 
     def forward(
         self,
         token_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,
         context_embeddings: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        if self.fusion in {"add", "sum"}:
-            return token_embeddings + graph_embeddings
-        if self.fusion in {"context_gated", "contextual"}:
-            context = token_embeddings if context_embeddings is None else context_embeddings
-            gate_input = torch.cat([token_embeddings, graph_embeddings, context], dim=-1)
-            gate = torch.sigmoid(self.gate(gate_input))
-            fused = gate * token_embeddings + (1.0 - gate) * graph_embeddings
-            return self.norm(token_embeddings + fused)
-        else:
-            gate_input = torch.cat([token_embeddings, graph_embeddings], dim=-1)
-        gate = torch.sigmoid(self.gate(gate_input))
-        return gate * token_embeddings + (1.0 - gate) * graph_embeddings
+        subgraph_embeddings: torch.Tensor | None = None,
+        return_stats: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        graph_embeddings = (
+            self.graph_dropout(graph_embeddings) * self.graph_fusion_scale
+        )
+        stats: dict[str, torch.Tensor] = {}
+        hidden = token_embeddings
+        if "token" in self.fusion_levels:
+            hidden, gate = self._basic_fusion(
+                hidden,
+                graph_embeddings,
+                context_embeddings=context_embeddings,
+            )
+            stats.update(self._gate_stats("token", gate))
+        if "sentence" in self.fusion_levels:
+            sentence_graph = graph_embeddings.mean(dim=1, keepdim=True).expand_as(hidden)
+            sentence_input = torch.cat([hidden, sentence_graph], dim=-1)
+            gate = torch.sigmoid(self.sentence_gate(sentence_input))
+            hidden = gate * hidden + (1.0 - gate) * sentence_graph
+            stats.update(self._gate_stats("sentence", gate))
+        if "subgraph" in self.fusion_levels and subgraph_embeddings is not None:
+            subgraph = self.graph_dropout(subgraph_embeddings) * self.graph_fusion_scale
+            subgraph_input = torch.cat([hidden, subgraph], dim=-1)
+            gate = torch.sigmoid(self.subgraph_gate(subgraph_input))
+            hidden = gate * hidden + (1.0 - gate) * subgraph
+            stats.update(self._gate_stats("subgraph", gate))
+        if return_stats:
+            return hidden, stats
+        return hidden
 
 
 class GraphCausalLM(nn.Module):
@@ -422,15 +515,28 @@ class GraphCausalLM(nn.Module):
         graph_data: Data | None,
         token_node_ids: torch.Tensor | None,
     ) -> torch.Tensor:
+        graph_embeddings, _ = self._graph_context_for_input(
+            input_ids,
+            graph_data,
+            token_node_ids,
+        )
+        return graph_embeddings
+
+    def _graph_context_for_input(
+        self,
+        input_ids: torch.Tensor,
+        graph_data: Data | None,
+        token_node_ids: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         token_table = self.token_embedding.weight
         output_shape = (*input_ids.shape, token_table.size(1))
         if self.graph_encoder is None or graph_data is None or token_node_ids is None:
-            return token_table.new_zeros(output_shape)
+            return token_table.new_zeros(output_shape), None
 
         token_node_ids = token_node_ids.to(token_table.device)
         valid_tokens = token_node_ids >= 0
         if not valid_tokens.any():
-            return token_table.new_zeros(output_shape)
+            return token_table.new_zeros(output_shape), None
 
         node_features = token_table.new_zeros((graph_data.num_nodes, token_table.size(1)))
         node_features[token_node_ids[valid_tokens]] = token_table[valid_tokens]
@@ -443,7 +549,27 @@ class GraphCausalLM(nn.Module):
         valid_positions = in_range & (node_ids >= 0)
         if valid_positions.any():
             flat_output[valid_positions] = node_embeddings[node_ids[valid_positions]]
-        return flat_output.reshape(output_shape)
+        graph_embeddings = flat_output.reshape(output_shape)
+
+        node_type_id = getattr(graph_data, "node_type_id", None)
+        if node_type_id is not None:
+            node_type_id = node_type_id.to(token_table.device)
+            mask = node_type_id != 0
+            if not mask.any():
+                mask = valid_tokens.new_zeros((node_embeddings.size(0),), dtype=torch.bool)
+                mask[token_node_ids[valid_tokens]] = True
+        else:
+            mask = valid_tokens.new_zeros((node_embeddings.size(0),), dtype=torch.bool)
+            mask[token_node_ids[valid_tokens]] = True
+        if not mask.any():
+            return graph_embeddings, None
+        subgraph_embedding = node_embeddings[mask].mean(dim=0).view(1, 1, -1)
+        subgraph_embedding = subgraph_embedding.expand(
+            input_ids.size(0),
+            input_ids.size(1),
+            -1,
+        )
+        return graph_embeddings, subgraph_embedding
 
     def forward(
         self,
@@ -466,28 +592,49 @@ class GraphCausalLM(nn.Module):
         positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
         token_embeddings = self.token_embedding(input_ids)
         has_graph = graph_embeddings is not None or (
-            self.graph_encoder is not None and graph_data is not None and token_node_ids is not None
+            self.graph_encoder is not None
+            and graph_data is not None
+            and token_node_ids is not None
         )
+        subgraph_embeddings = None
         if not has_graph:
             hidden = token_embeddings
+            fusion_stats = {}
         else:
             if graph_embeddings is None:
-                graph_embeddings = self._graph_embeddings_for_input(
+                graph_embeddings, subgraph_embeddings = self._graph_context_for_input(
                     input_ids,
                     graph_data,
                     token_node_ids,
                 )
-            hidden = self.fusion(token_embeddings, graph_embeddings)
+            fused = self.fusion(
+                token_embeddings,
+                graph_embeddings,
+                subgraph_embeddings=subgraph_embeddings,
+                return_stats=True,
+            )
+            hidden, fusion_stats = fused
         hidden = self.dropout(hidden + self.position_embedding(positions))
         padding_mask = input_ids.eq(self.config.pad_token_id)
         mask = self._causal_mask(seq_len, input_ids.device)
         for layer in self.transformer_layers:
             if has_graph and self.config.fusion_layers == "all":
-                hidden = self.fusion(hidden, graph_embeddings, context_embeddings=hidden)
+                fused = self.fusion(
+                    hidden,
+                    graph_embeddings,
+                    context_embeddings=hidden,
+                    subgraph_embeddings=subgraph_embeddings,
+                    return_stats=True,
+                )
+                hidden, layer_stats = fused
+                for key, value in layer_stats.items():
+                    fusion_stats[f"layer_{key}"] = value
             hidden = layer(hidden, src_mask=mask, src_key_padding_mask=padding_mask)
         hidden = self.final_norm(hidden)
         logits = self.lm_head(hidden)
         output = {"logits": logits}
+        if fusion_stats:
+            output["fusion_stats"] = fusion_stats
         if labels is not None:
             loss = F.cross_entropy(
                 logits.reshape(-1, logits.size(-1)),
