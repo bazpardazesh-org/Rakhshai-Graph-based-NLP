@@ -20,7 +20,7 @@ pip install -e .[docs]
 - **Graph construction**: `build_cooccurrence_graph`, `build_text_graph`, `build_document_graph`, `build_dependency_graph`, `build_semantic_graph` with lexical relations, FarsNet-style exports and embedding similarity.
 - **End-to-end text classification**: `TextGraphClassifier` provides `fit`, `evaluate`, `predict`, `save` and `load` for a complete TextGCN-style Persian classification workflow.
 - **Modelling utilities**: PyTorch Geometric based `train_gcn_classifier`/`train_node_classifier` for GCN, GraphSAGE and GAT models plus `compute_social_embeddings`.
-- **Persian Graph-LM path**: `PersianTokenizer`, `build_graph_lm_graph`, `GraphCausalLM` and `LMTrainer` provide a causal LM baseline with optional graph encoding and graph-token fusion. The stable v1 architecture is documented in [Rakhshai Graph-LM v1 Architecture](graph_lm_v1.md), the Phase 3 multi-relation graph is documented in [Rakhshai Multi-Relation Persian Graph](multi_relation_persian_graph.md), and the Phase 4 encoder upgrade is documented in [Rakhshai Graph Reasoning Core](graph_reasoning_core.md).
+- **Persian Graph-LM path**: `PersianTokenizer`, `build_graph_lm_graph`, `GraphCausalLM` and `LMTrainer` provide a causal LM baseline with optional graph encoding and graph-token fusion. The stable v1 architecture is documented in [Rakhshai Graph-LM v1 Architecture](graph_lm_v1.md), the Phase 3 multi-relation graph is documented in [Rakhshai Multi-Relation Persian Graph](multi_relation_persian_graph.md), the Phase 4 encoder upgrade is documented in [Rakhshai Graph Reasoning Core](graph_reasoning_core.md), and Phase 7 is documented in [Rakhshai Low-Data Training Engine](low_data_training_engine.md).
 - **Training pipeline**: `rgnn-cli` can train on CSV, TSV or JSONL text datasets, create train/validation/test splits, report accuracy and macro-F1, and save model checkpoints.
 - **Application tasks**: `textrank_summarise`, `gat_summarise`, `recommend_similar`, `HateSpeechDetector` and others.
 
@@ -29,9 +29,9 @@ graphs, hate-speech detection and GAT-based summarisation now have executable
 APIs that can be extended with stronger domain data.
 
 The Graph-LM path is experimental but now has a documented v1 architecture,
-a Phase 3 multi-relation default graph, and two control modes: a no-graph
-baseline and an explicit v1 simple graph baseline with
-`--graph-relations cooccurrence`.
+a Phase 3 multi-relation default graph, a Phase 7 Low-Data Training Engine,
+and two control modes: a no-graph baseline and an explicit v1 simple graph
+baseline with `--graph-relations cooccurrence`.
 
 FarsNet support is available through `load_farsnet_relations` and
 `build_semantic_graph_from_farsnet`. The project does not bundle the FarsNet

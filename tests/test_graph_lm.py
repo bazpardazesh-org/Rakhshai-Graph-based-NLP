@@ -980,3 +980,166 @@ def test_lm_cli_train_accepts_phase6_multitask_options(tmp_path):
     metrics = json.loads((output_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["training_config"]["masked_token_weight"] == 0.2
     assert metrics["history"][0]["task_status"]["masked_token"] == "active"
+
+
+def test_phase7_low_data_training_defaults_are_active(tmp_path):
+    corpus = [
+        "مدل رخشای با داده کم بهتر آموزش می‌بیند",
+        "گراف فارسی رابطه واژه‌ها را نگه می‌دارد",
+        "آموزش مقاوم جلوی حفظ کردن را می‌گیرد",
+    ]
+    output_dir = tmp_path / "phase7"
+
+    metrics = train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(output_dir),
+            epochs=1,
+            batch_size=1,
+            validation_ratio=0.0,
+            block_size=8,
+            graph_relations=["cooccurrence", "stem", "word_document"],
+            device="cpu",
+            seed=0,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=8,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="gcn",
+            graph_hidden_dim=8,
+        ),
+        graph_encoder="gcn",
+    )
+
+    row = metrics["history"][0]
+
+    assert metrics["training_config"]["text_augmentation"] is True
+    assert metrics["training_config"]["edge_dropout"] > 0
+    assert metrics["training_config"]["node_dropout"] > 0
+    assert metrics["training_config"]["contrastive_weight"] > 0
+    assert metrics["training_config"]["curriculum_learning"] is True
+    assert metrics["low_data_training"]["augmented_train_examples"] >= len(corpus)
+    assert "generalization_gap" in row
+    assert row["task_status"]["contrastive"] in {"active", "skipped"}
+    assert metrics["epochs_ran"] == 1
+    assert metrics["best_epoch"] == 1
+
+
+def test_lm_cli_train_accepts_phase7_low_data_options(tmp_path):
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text(
+        "کتاب‌ها در کتابخانه ماندند\n"
+        "دانشجویان کتاب تازه خواندند\n"
+        "دانشگاه درباره کتابخانه گزارش داد\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "phase7-cli"
+
+    result = main(
+        [
+            "lm-train",
+            "--corpus",
+            str(corpus),
+            "--output-dir",
+            str(output_dir),
+            "--graph-encoder",
+            "gcn",
+            "--augmentation-ratio",
+            "1.0",
+            "--token-dropout",
+            "0.1",
+            "--punctuation-dropout",
+            "1.0",
+            "--node-dropout",
+            "0.1",
+            "--edge-dropout",
+            "0.2",
+            "--subgraph-sampling-ratio",
+            "0.8",
+            "--contrastive-weight",
+            "0.07",
+            "--early-stopping-patience",
+            "2",
+            "--early-stopping-min-delta",
+            "0.001",
+            "--max-grad-norm",
+            "0.5",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "1",
+            "--block-size",
+            "8",
+            "--d-model",
+            "8",
+            "--n-heads",
+            "2",
+            "--n-layers",
+            "1",
+            "--dim-feedforward",
+            "16",
+            "--graph-hidden-dim",
+            "8",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    assert result == 0
+    metrics = json.loads((output_dir / "metrics.json").read_text(encoding="utf-8"))
+    graph_config = json.loads((output_dir / "graph_config.json").read_text(encoding="utf-8"))
+    assert metrics["training_config"]["augmentation_ratio"] == 1.0
+    assert metrics["training_config"]["edge_dropout"] == 0.2
+    assert metrics["training_config"]["contrastive_weight"] == 0.07
+    assert metrics["training_config"]["early_stopping_patience"] == 2
+    assert metrics["training_config"]["max_grad_norm"] == 0.5
+    assert metrics["low_data_training"]["text_augmentation"] is True
+    assert graph_config["low_data_training"]["subgraph_sampling_ratio"] == 0.8
+
+
+def test_phase7_low_data_controls_can_be_disabled(tmp_path):
+    corpus = [
+        "رخشای متن فارسی را پردازش می‌کند",
+        "گراف چندرابطه‌ای کمک آموزشی می‌دهد",
+    ]
+    output_dir = tmp_path / "phase7-off"
+
+    metrics = train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(output_dir),
+            epochs=1,
+            batch_size=1,
+            validation_ratio=0.0,
+            block_size=8,
+            text_augmentation=False,
+            augmentation_ratio=0.0,
+            edge_dropout=0.0,
+            node_dropout=0.0,
+            subgraph_sampling_ratio=1.0,
+            contrastive_weight=0.0,
+            curriculum_learning=False,
+            early_stopping_patience=0,
+            device="cpu",
+            seed=0,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=8,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="none",
+        ),
+        graph_encoder="none",
+    )
+
+    assert metrics["training_config"]["text_augmentation"] is False
+    assert metrics["low_data_training"]["augmented_train_examples"] == len(corpus)
+    assert "contrastive" not in metrics["history"][0].get("train_task_losses", {})
+    assert metrics["stopped_early"] is False

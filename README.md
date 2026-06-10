@@ -66,6 +66,10 @@ embedding گرافی تولید می‌کند، و سپس embedding توکن و 
   `token`، `sentence` و `subgraph` کنترل کند. شدت استفاده از گراف با
   scale/dropout تنظیم می‌شود و آمار gateها در `metrics.json` ذخیره می‌شود تا
   معلوم شود مدل واقعاً کجا از گراف کمک گرفته است.
+- **Low-Data Training Engine فاز ۷:** مسیر Graph-LM به صورت پیش‌فرض با
+  augmentation متنی، dropout گره/یال، subgraph sampling، contrastive learning،
+  curriculum learning، early stopping و گزارش overfitting اجرا می‌شود تا در
+  corpusهای کوچک کمتر حفظ کند و بهتر generalize کند.
 - **Baseline بدون گراف برای مقایسه منصفانه:** با `--graph-encoder none` می‌توانید
   همان Transformer causal LM را بدون GNN و fusion آموزش دهید و اثر واقعی گراف را
   با validation loss و perplexity بسنجید.
@@ -83,6 +87,7 @@ Persian Text
 → Multi-Relation Persian Graph
 → Rakhshai Graph Encoder (GCN / GraphSAGE / GAT / RGCN)
 → Adaptive Graph-Text Fusion
+→ Low-Data Training Engine
 → Transformer Causal LM
 → Text Generation
 ```
@@ -93,6 +98,8 @@ Persian Text
 Rakhshai Graph Encoder
 +
 Adaptive Graph-Text Fusion
++
+Low-Data Training Engine
 +
 Persian Causal LM
 ```
@@ -479,6 +486,45 @@ rgnn-cli lm-train \
   --output-dir runs/multitask-graph-lm
 ```
 
+از فاز ۷، **Low-Data Training Engine** به صورت پیش‌فرض فعال است. این بخش
+برای corpusهای کوچک طراحی شده و با augmentation متنی، dropout گرافی،
+subgraph sampling، contrastive consistency، curriculum learning و early
+stopping تلاش می‌کند مدل کمتر متن را حفظ کند و validation بهتری بگیرد.
+
+نمونه اجرای صریح فاز ۷ با تنظیمات پیشنهادی پیش‌فرض:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/expanded_persian_lm.txt \
+  --graph-encoder gcn \
+  --graph-relations cooccurrence pmi stem word_document topic_document \
+  --augmentation-ratio 0.5 \
+  --token-dropout 0.05 \
+  --punctuation-dropout 0.5 \
+  --node-dropout 0.05 \
+  --edge-dropout 0.1 \
+  --subgraph-sampling-ratio 0.9 \
+  --contrastive-weight 0.05 \
+  --early-stopping-patience 3 \
+  --output-dir runs/low-data-training-engine
+```
+
+برای ablation یا برگشت به آموزش ساده‌تر، این قابلیت‌ها را می‌توانید خاموش کنید:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/expanded_persian_lm.txt \
+  --graph-encoder gcn \
+  --no-text-augmentation \
+  --edge-dropout 0 \
+  --node-dropout 0 \
+  --subgraph-sampling-ratio 1 \
+  --contrastive-weight 0 \
+  --no-curriculum \
+  --early-stopping-patience 0 \
+  --output-dir runs/no-low-data-regularization
+```
+
 تولید متن با checkpoint ذخیره‌شده:
 
 ```bash
@@ -527,6 +573,14 @@ runs/graph-lm/
 | `--graph-text-alignment-weight` و `--sentence-graph-alignment-weight` | وزن alignment بین نمایش متن و گراف |
 | `--mask-probability` | احتمال انتخاب tokenهای غیر padding برای masked-token prediction |
 | `--negative-samples` | تعداد نمونه منفی برای هر یال مثبت در lossهای گرافی |
+| `--augmentation-ratio` | نسبت نمونه‌های augmented اضافه‌شده به train split؛ پیش‌فرض فاز ۷ فعال است |
+| `--token-dropout` و `--punctuation-dropout` | شدت augmentation متنی برای corpus کم‌داده |
+| `--edge-dropout` و `--node-dropout` | regularization گرافی هنگام train برای جلوگیری از حفظ ساختار ثابت |
+| `--subgraph-sampling-ratio` | سهم یال‌های نگه‌داشته‌شده در هر view گرافی train |
+| `--contrastive-weight` | وزن loss سازگاری contrastive بین viewهای گرافی |
+| `--no-text-augmentation` و `--no-curriculum` | خاموش‌کردن augmentation متنی یا curriculum برای ablation |
+| `--early-stopping-patience` و `--early-stopping-min-delta` | کنترل early stopping بر اساس validation loss |
+| `--max-grad-norm` | حد clipping گرادیان در trainer |
 | `--output-dir` | مسیر ذخیره checkpoint، configها، tokenizer و گزارش‌ها |
 | `--temperature` | کنترل تصادفی‌بودن تولید متن؛ مقدار کمتر خروجی محافظه‌کارتر می‌دهد |
 | `--top-k` | محدودکردن نمونه‌گیری به k توکن محتمل‌تر |

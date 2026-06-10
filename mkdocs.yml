@@ -4,6 +4,7 @@ nav:
   - Persian Tokenizer: persian_tokenizer.md
   - Multi-Relation Persian Graph: multi_relation_persian_graph.md
   - Graph Reasoning Core: graph_reasoning_core.md
+  - Low-Data Training Engine: low_data_training_engine.md
 plugins:
   - search
   - mkdocstrings:

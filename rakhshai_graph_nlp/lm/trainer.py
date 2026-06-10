@@ -8,8 +8,15 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+from .augmentation import (
+    TextAugmentationConfig,
+    augment_corpus,
+    augment_graph_data,
+    mean_pool_hidden,
+)
 from .dataset import LMDataset, LMLoaders, build_lm_dataloaders
 from .graph_builder import build_graph_lm_graph, build_graph_lm_graph_from_token_ids
 from .model import GenerationConfig, GraphCausalLM, GraphLMConfig, perplexity
@@ -58,6 +65,18 @@ class LMTrainingConfig:
     sentence_graph_alignment_weight: float = 0.1
     mask_probability: float = 0.15
     negative_samples: int = 1
+    text_augmentation: bool = True
+    augmentation_ratio: float = 0.5
+    token_dropout: float = 0.05
+    punctuation_dropout: float = 0.5
+    node_dropout: float = 0.05
+    edge_dropout: float = 0.1
+    subgraph_sampling_ratio: float = 0.9
+    contrastive_weight: float = 0.05
+    curriculum_learning: bool = True
+    early_stopping_patience: int = 3
+    early_stopping_min_delta: float = 1e-4
+    max_grad_norm: float = 1.0
     dynamic_graph: bool = False
     tokenizer_type: str = "word"
     tokenizer_half_space: str = "preserve"
@@ -150,23 +169,72 @@ class LMTrainer:
         dataset: LMDataset,
         validation_dataset: LMDataset | None,
     ) -> LMLoaders:
+        if self.config.curriculum_learning and hasattr(dataset, "examples"):
+            dataset.examples.sort(
+                key=lambda pair: int(pair[1].ne(-100).sum().item())
+            )
         if validation_dataset is None:
-            return build_lm_dataloaders(
+            loaders = build_lm_dataloaders(
                 dataset,
                 batch_size=self.config.batch_size,
                 validation_ratio=self.config.validation_ratio,
                 seed=self.config.seed,
+                shuffle_train=not self.config.curriculum_learning,
             )
+            return loaders
         generator = torch.Generator().manual_seed(self.config.seed)
         return LMLoaders(
             train=DataLoader(
                 dataset,
                 batch_size=self.config.batch_size,
-                shuffle=True,
+                shuffle=not self.config.curriculum_learning,
                 generator=generator,
             ),
             validation=DataLoader(validation_dataset, batch_size=self.config.batch_size),
         )
+
+    def _contrastive_loss(
+        self,
+        input_ids: torch.Tensor,
+        output: dict[str, torch.Tensor],
+        graph_data,
+        token_node_ids: torch.Tensor | None,
+    ) -> torch.Tensor | None:
+        if (
+            self.config.contrastive_weight <= 0
+            or self.model.config.graph_encoder == "none"
+            or graph_data is None
+            or token_node_ids is None
+            or output.get("hidden") is None
+        ):
+            return None
+        contrast_graph = augment_graph_data(
+            self.graph_data,
+            edge_dropout=max(self.config.edge_dropout, 0.15),
+            node_dropout=max(self.config.node_dropout, 0.1),
+            subgraph_ratio=min(self.config.subgraph_sampling_ratio, 0.85),
+            training=True,
+        )
+        if contrast_graph is None:
+            return None
+        with torch.no_grad():
+            contrast_output = self.model(
+                input_ids,
+                graph_data=contrast_graph,
+                token_node_ids=token_node_ids,
+                return_hidden=True,
+            )
+        anchor = mean_pool_hidden(
+            output["hidden"],
+            input_ids,
+            self.model.config.pad_token_id,
+        )
+        positive = mean_pool_hidden(
+            contrast_output["hidden"],
+            input_ids,
+            self.model.config.pad_token_id,
+        )
+        return 1.0 - F.cosine_similarity(anchor, positive.detach(), dim=-1).mean()
 
     def _run_epoch(self, loader, optimizer: torch.optim.Optimizer | None = None) -> float:
         training = optimizer is not None
@@ -188,6 +256,14 @@ class LMTrainer:
                 graph_data = None
                 token_node_ids = None
                 graph_embeddings = self._causal_dynamic_graph_embeddings(input_ids)
+            elif training:
+                graph_data = augment_graph_data(
+                    graph_data,
+                    edge_dropout=self.config.edge_dropout,
+                    node_dropout=self.config.node_dropout,
+                    subgraph_ratio=self.config.subgraph_sampling_ratio,
+                    training=True,
+                )
             if training:
                 optimizer.zero_grad(set_to_none=True)
             output = self.model(
@@ -207,6 +283,19 @@ class LMTrainer:
                 token_node_ids=token_node_ids,
                 config=multitask_config,
             )
+            if training:
+                contrastive_loss = self._contrastive_loss(
+                    input_ids,
+                    output,
+                    graph_data,
+                    token_node_ids,
+                )
+                if contrastive_loss is not None:
+                    task_losses["contrastive"] = contrastive_loss
+                    batch_status["contrastive"] = "active"
+                    loss = loss + contrastive_loss * float(self.config.contrastive_weight)
+                elif self.config.contrastive_weight > 0:
+                    batch_status["contrastive"] = "skipped"
             for key, value in task_losses.items():
                 loss_sums[key] = loss_sums.get(key, 0.0) + float(value.detach().cpu())
             for key, value in batch_status.items():
@@ -226,7 +315,10 @@ class LMTrainer:
                     )
             if training:
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(),
+                    self.config.max_grad_norm,
+                )
                 optimizer.step()
             total_loss += float(loss.detach().cpu())
             total_batches += 1
@@ -252,6 +344,10 @@ class LMTrainer:
         )
         history: list[dict[str, float | int]] = []
         best_val = float("inf")
+        best_epoch = 0
+        epochs_without_improvement = 0
+        stopped_early = False
+        early_stopping_reason = ""
         output_dir = Path(self.config.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -274,6 +370,7 @@ class LMTrainer:
                 "epoch": epoch,
                 "train_loss": train_loss,
                 "validation_loss": val_loss,
+                "generalization_gap": val_loss - train_loss,
                 "perplexity": perplexity(val_loss),
             }
             if train_fusion_stats:
@@ -287,8 +384,11 @@ class LMTrainer:
             if validation_task_losses:
                 row["validation_task_losses"] = validation_task_losses
             history.append(row)
-            if val_loss <= best_val:
+            improved = val_loss < (best_val - self.config.early_stopping_min_delta)
+            if improved or val_loss <= best_val:
                 best_val = val_loss
+                best_epoch = epoch
+                epochs_without_improvement = 0
                 self.model.save_pretrained(
                     output_dir,
                     tokenizer=self.tokenizer,
@@ -297,6 +397,18 @@ class LMTrainer:
                     token_node_ids=self.token_node_ids,
                     generation_config=GenerationConfig(eos_token_id=self.tokenizer.eos_id),
                 )
+            else:
+                epochs_without_improvement += 1
+            if (
+                self.config.early_stopping_patience > 0
+                and epochs_without_improvement >= self.config.early_stopping_patience
+            ):
+                stopped_early = True
+                early_stopping_reason = (
+                    "validation_loss did not improve for "
+                    f"{self.config.early_stopping_patience} epoch(s)"
+                )
+                break
 
         metrics = {
             "training_config": asdict(self.config),
@@ -304,6 +416,10 @@ class LMTrainer:
             "history": history,
             "best_validation_loss": best_val,
             "best_perplexity": perplexity(best_val),
+            "best_epoch": best_epoch,
+            "epochs_ran": len(history),
+            "stopped_early": stopped_early,
+            "early_stopping_reason": early_stopping_reason,
             "checkpoint_dir": str(output_dir),
         }
         if history:
@@ -387,8 +503,18 @@ def train_graph_lm(
         compound_verb_mode=training_config.tokenizer_compound_verb_mode,
         bpe_num_merges=training_config.tokenizer_bpe_merges,
     ).fit(train_corpus)
-    dataset = LMDataset(
+    augmented_train_corpus = augment_corpus(
         train_corpus,
+        TextAugmentationConfig(
+            enabled=training_config.text_augmentation,
+            ratio=training_config.augmentation_ratio,
+            token_dropout=training_config.token_dropout,
+            punctuation_dropout=training_config.punctuation_dropout,
+        ),
+        seed=training_config.seed,
+    )
+    dataset = LMDataset(
+        augmented_train_corpus,
         tokenizer,
         block_size=training_config.block_size,
         stride=training_config.stride,
@@ -406,7 +532,7 @@ def train_graph_lm(
     graph = None
     if graph_encoder != "none":
         graph = build_graph_lm_graph(
-            train_corpus,
+            augmented_train_corpus,
             tokenizer,
             window_size=training_config.graph_window_size,
             min_count=training_config.graph_min_count,
@@ -461,6 +587,18 @@ def train_graph_lm(
             **graph.graph_config,
             "dynamic_graph": training_config.dynamic_graph,
             "graph_source": "train",
+            "low_data_training": {
+                "text_augmentation": training_config.text_augmentation,
+                "augmentation_ratio": training_config.augmentation_ratio,
+                "augmented_train_examples": len(augmented_train_corpus),
+                "original_train_examples": len(train_corpus),
+                "node_dropout": training_config.node_dropout,
+                "edge_dropout": training_config.edge_dropout,
+                "subgraph_sampling_ratio": training_config.subgraph_sampling_ratio,
+                "contrastive_weight": training_config.contrastive_weight,
+                "curriculum_learning": training_config.curriculum_learning,
+                "early_stopping_patience": training_config.early_stopping_patience,
+            },
         }
     )
     trainer = LMTrainer(
@@ -477,6 +615,18 @@ def train_graph_lm(
         train_corpus,
         validation_corpus,
     )
+    metrics["low_data_training"] = {
+        "text_augmentation": training_config.text_augmentation,
+        "augmentation_ratio": training_config.augmentation_ratio,
+        "augmented_train_examples": len(augmented_train_corpus),
+        "original_train_examples": len(train_corpus),
+        "node_dropout": training_config.node_dropout,
+        "edge_dropout": training_config.edge_dropout,
+        "subgraph_sampling_ratio": training_config.subgraph_sampling_ratio,
+        "contrastive_weight": training_config.contrastive_weight,
+        "curriculum_learning": training_config.curriculum_learning,
+        "early_stopping_patience": training_config.early_stopping_patience,
+    }
     metrics_path = Path(training_config.output_dir) / "metrics.json"
     with metrics_path.open("w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)

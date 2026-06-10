@@ -244,6 +244,18 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         sentence_graph_alignment_weight=args.sentence_graph_alignment_weight,
         mask_probability=args.mask_probability,
         negative_samples=args.negative_samples,
+        text_augmentation=not args.no_text_augmentation,
+        augmentation_ratio=args.augmentation_ratio,
+        token_dropout=args.token_dropout,
+        punctuation_dropout=args.punctuation_dropout,
+        node_dropout=args.node_dropout,
+        edge_dropout=args.edge_dropout,
+        subgraph_sampling_ratio=args.subgraph_sampling_ratio,
+        contrastive_weight=args.contrastive_weight,
+        curriculum_learning=not args.no_curriculum,
+        early_stopping_patience=args.early_stopping_patience,
+        early_stopping_min_delta=args.early_stopping_min_delta,
+        max_grad_norm=args.max_grad_norm,
         dynamic_graph=args.dynamic_graph,
         tokenizer_type=args.tokenizer_type,
         tokenizer_half_space=args.tokenizer_half_space,
@@ -518,6 +530,76 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Number of sampled negative graph pairs per positive edge",
+    )
+    train.add_argument(
+        "--no-text-augmentation",
+        action="store_true",
+        help="Disable Phase 7 text augmentation for low-data training",
+    )
+    train.add_argument(
+        "--augmentation-ratio",
+        type=float,
+        default=0.5,
+        help="Additional augmented training examples as a fraction of train corpus",
+    )
+    train.add_argument(
+        "--token-dropout",
+        type=float,
+        default=0.05,
+        help="Probability of dropping a token in augmented text examples",
+    )
+    train.add_argument(
+        "--punctuation-dropout",
+        type=float,
+        default=0.5,
+        help="Probability of removing punctuation in augmented text examples",
+    )
+    train.add_argument(
+        "--node-dropout",
+        type=float,
+        default=0.05,
+        help="Probability of masking graph nodes through incident-edge removal",
+    )
+    train.add_argument(
+        "--edge-dropout",
+        type=float,
+        default=0.1,
+        help="Probability of dropping graph edges during training",
+    )
+    train.add_argument(
+        "--subgraph-sampling-ratio",
+        type=float,
+        default=0.9,
+        help="Fraction of graph edges retained for each sampled training view",
+    )
+    train.add_argument(
+        "--contrastive-weight",
+        type=float,
+        default=0.05,
+        help="Weight for Phase 7 graph-view contrastive consistency loss",
+    )
+    train.add_argument(
+        "--no-curriculum",
+        action="store_true",
+        help="Disable Phase 7 curriculum ordering of LM windows",
+    )
+    train.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=3,
+        help="Stop after this many epochs without validation improvement; 0 disables",
+    )
+    train.add_argument(
+        "--early-stopping-min-delta",
+        type=float,
+        default=1e-4,
+        help="Minimum validation-loss improvement counted by early stopping",
+    )
+    train.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=1.0,
+        help="Gradient clipping norm used by the LM trainer",
     )
     train.add_argument("--d-model", type=int, default=128)
     train.add_argument("--n-heads", type=int, default=4)
