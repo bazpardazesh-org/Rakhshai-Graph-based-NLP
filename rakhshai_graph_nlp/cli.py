@@ -258,6 +258,13 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         early_stopping_min_delta=args.early_stopping_min_delta,
         max_grad_norm=args.max_grad_norm,
         dynamic_graph=args.dynamic_graph,
+        graph_build_batch_size=args.graph_build_batch_size,
+        graph_cache_dir=args.graph_cache_dir,
+        reuse_graph_cache=not args.no_reuse_graph_cache,
+        dataloader_num_workers=args.dataloader_num_workers,
+        dataloader_pin_memory=args.dataloader_pin_memory,
+        amp=args.amp,
+        resume_from=args.resume_from,
         tokenizer_type=args.tokenizer_type,
         tokenizer_half_space=args.tokenizer_half_space,
         tokenizer_morph_splitting=args.tokenizer_morph_splitting,
@@ -726,6 +733,43 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     train.add_argument("--semantic-top-k", type=int, default=4)
     train.add_argument("--topic-top-k", type=int, default=8)
     train.add_argument("--dynamic-graph", action="store_true")
+    train.add_argument(
+        "--graph-build-batch-size",
+        type=int,
+        default=None,
+        help="Build co-occurrence graph statistics in batches of this many text units",
+    )
+    train.add_argument(
+        "--graph-cache-dir",
+        default=None,
+        help="Directory for reusable Phase 9 graph cache artifacts",
+    )
+    train.add_argument(
+        "--no-reuse-graph-cache",
+        action="store_true",
+        help="Rebuild the graph even when a matching graph cache artifact exists",
+    )
+    train.add_argument(
+        "--dataloader-num-workers",
+        type=int,
+        default=0,
+        help="Number of PyTorch DataLoader worker processes for LM training",
+    )
+    train.add_argument(
+        "--dataloader-pin-memory",
+        action="store_true",
+        help="Pin DataLoader memory, useful when training on CUDA",
+    )
+    train.add_argument(
+        "--amp",
+        action="store_true",
+        help="Enable CUDA automatic mixed precision for LM training",
+    )
+    train.add_argument(
+        "--resume-from",
+        default=None,
+        help="Resume LM model and optimizer state from a previous checkpoint directory",
+    )
     train.add_argument(
         "--tokenizer-type",
         choices=["word", "subword", "char_chunk", "bpe", "unigram"],

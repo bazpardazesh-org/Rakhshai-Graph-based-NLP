@@ -567,11 +567,61 @@ nodeهای حافظه وصل می‌کند، همسایه‌های مرتبط ر
 `--graph-memory off` باشد، retrieval انجام نمی‌شود و مدل مثل قبل از `graph.pt`
 ثابت، گراف پویا یا حالت بدون گراف استفاده می‌کند.
 
+از فاز ۹، مسیر Graph-LM برای corpus بزرگ‌تر هم آماده‌تر شده است. هدف این فاز
+این است که ساخت گراف، ذخیره گراف، train و ادامه آموزش فقط برای corpusهای کوچک
+مناسب نباشد. قابلیت‌های جدید فاز ۹ شامل ساخت batchی آمار گراف، cache قابل
+استفاده مجدد برای گراف، گزارش متریک‌های مقیاس‌پذیری، تنظیم DataLoader، AMP
+اختیاری برای CUDA و resume کامل‌تر از checkpoint آموزشی است.
+
+نمونه اجرای فاز ۹ برای corpus متوسط یا بزرگ:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/wiki_fa_50k.txt \
+  --graph-encoder gcn \
+  --graph-relations cooccurrence pmi stem word_document topic_document \
+  --graph-top-k 8 \
+  --graph-build-batch-size 1000 \
+  --graph-cache-dir runs/graph-cache \
+  --dataloader-num-workers 2 \
+  --dataloader-pin-memory \
+  --amp \
+  --output-dir runs/scalable-graph-lm
+```
+
+اگر آموزش قطع شد، می‌توانید از checkpoint آموزشی ادامه بدهید:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/wiki_fa_50k.txt \
+  --graph-encoder gcn \
+  --graph-cache-dir runs/graph-cache \
+  --resume-from runs/scalable-graph-lm \
+  --epochs 10 \
+  --output-dir runs/scalable-graph-lm
+```
+
+مقایسه رفتار قابلیت‌های فاز ۹ در حالت فعال و غیرفعال:
+
+| قابلیت | وقتی فعال باشد | وقتی غیرفعال باشد |
+| --- | --- | --- |
+| `--graph-build-batch-size` | آمار هم‌رخدادی گراف در batchهای کوچک‌تر merge می‌شود و برای corpus بزرگ فشار حافظه کنترل‌پذیرتر است. | کل واحدهای متنی با مسیر قبلی پردازش می‌شوند؛ برای corpus کوچک ساده‌تر و کافی است. |
+| `--graph-cache-dir` | گراف ساخته‌شده با hash وابسته به corpus، tokenizer و graph config ذخیره می‌شود؛ run بعدی با همان تنظیمات سریع‌تر از cache می‌خواند. | هر train گراف را از ابتدا می‌سازد؛ برای ablationهای سریع کوچک قابل قبول است، اما روی corpus بزرگ زمان را تکراراً مصرف می‌کند. |
+| `--no-reuse-graph-cache` | اگر همراه cache استفاده شود، cache قبلی نادیده گرفته می‌شود و artifact تازه ساخته و جایگزین می‌شود. | حالت پیش‌فرض این است که اگر cache سازگار پیدا شود، همان استفاده شود. |
+| `--graph-top-k` | تعداد همسایه‌های هر node محدود می‌شود؛ گراف خلوت‌تر، RAM کمتر و train سریع‌تر می‌شود، با احتمال حذف بعضی رابطه‌های ضعیف. | یال‌های بیشتری حفظ می‌شوند؛ سیگنال گرافی کامل‌تر است ولی هزینه حافظه و محاسبه بالاتر می‌رود. |
+| خاموش‌کردن relationهای سنگین مثل `semantic_similarity` | ساخت گراف برای vocab بزرگ سریع‌تر و کم‌مصرف‌تر می‌شود. | semantic relation ممکن است کیفیت را بهتر کند، اما روی vocab بزرگ چون مقایسه جفتی دارد گران‌تر است. |
+| `--dataloader-num-workers` | آماده‌سازی batchها می‌تواند موازی‌تر شود و GPU کمتر منتظر DataLoader بماند. | DataLoader تک‌پردازه می‌ماند؛ برای corpus کوچک ساده و کم‌هزینه است. |
+| `--dataloader-pin-memory` | وقتی device واقعاً CUDA باشد، انتقال batchها به GPU روان‌تر می‌شود. | انتقال حافظه عادی انجام می‌شود؛ روی CPU/MPS اثر خاصی ندارد. |
+| `--amp` | روی CUDA از automatic mixed precision استفاده می‌شود و معمولاً حافظه GPU و زمان train کمتر می‌شود. | آموزش با precision معمول PyTorch انجام می‌شود؛ پایدارترین مسیر برای CPU و debug است. |
+| `--resume-from` | `model.pt`، optimizer state، epoch، best validation و RNG state از `training_state.pt` خوانده می‌شود و train از epoch بعدی ادامه می‌یابد. | آموزش از ابتدا شروع می‌شود، حتی اگر در output directory checkpoint قبلی وجود داشته باشد. |
+| متریک‌های `graph_scalability` | `metrics.json` نشان می‌دهد cache فعال بوده یا نه، cache hit شده یا نه، ساخت گراف چقدر طول کشیده، چند batch گراف ساخته شده و graph چند node/edge دارد. | بدون اجرای فاز ۹ هم train کار می‌کند، اما تحلیل هزینه ساخت گراف و cache کمتر شفاف است. |
+
 خروجی checkpoint مدل زبانی کامل است و فقط به `model.pt` محدود نمی‌شود:
 
 ```text
 runs/graph-lm/
 ├── model.pt
+├── training_state.pt
 ├── config.json
 ├── tokenizer.json
 ├── graph_config.json
@@ -613,6 +663,13 @@ runs/graph-lm/
 | `--no-text-augmentation` و `--no-curriculum` | خاموش‌کردن augmentation متنی یا curriculum برای ablation |
 | `--early-stopping-patience` و `--early-stopping-min-delta` | کنترل early stopping بر اساس validation loss |
 | `--max-grad-norm` | حد clipping گرادیان در trainer |
+| `--graph-build-batch-size` | ساخت batchی آمار گراف برای corpusهای بزرگ‌تر |
+| `--graph-cache-dir` | مسیر cache گراف‌های ساخته‌شده برای استفاده مجدد در runهای بعدی |
+| `--no-reuse-graph-cache` | اجبار به بازسازی گراف حتی اگر cache سازگار وجود داشته باشد |
+| `--dataloader-num-workers` | تعداد workerهای DataLoader در آموزش Graph-LM |
+| `--dataloader-pin-memory` | فعال‌کردن pinned memory مؤثر هنگام train روی CUDA |
+| `--amp` | فعال‌کردن mixed precision روی CUDA برای کاهش مصرف حافظه و افزایش سرعت |
+| `--resume-from` | ادامه آموزش از checkpoint شامل model و training state |
 | `--output-dir` | مسیر ذخیره checkpoint، configها، tokenizer و گزارش‌ها |
 | `--temperature` | کنترل تصادفی‌بودن تولید متن؛ مقدار کمتر خروجی محافظه‌کارتر می‌دهد |
 | `--top-k` | محدودکردن نمونه‌گیری به k توکن محتمل‌تر |

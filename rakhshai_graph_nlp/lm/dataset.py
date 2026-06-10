@@ -75,6 +75,8 @@ def build_lm_dataloaders(
     validation_ratio: float = 0.1,
     seed: int = 0,
     shuffle_train: bool = True,
+    num_workers: int = 0,
+    pin_memory: bool = False,
 ) -> LMLoaders:
     if not 0 <= validation_ratio < 1:
         raise ValueError("validation_ratio must be in [0, 1)")
@@ -88,7 +90,13 @@ def build_lm_dataloaders(
         train_data, val_data = random_split(
             dataset, [train_size, val_size], generator=generator
         )
-        validation = DataLoader(val_data, batch_size=batch_size)
+        validation = DataLoader(
+            val_data,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            persistent_workers=num_workers > 0,
+        )
     else:
         train_data = dataset
         validation = None
@@ -97,5 +105,8 @@ def build_lm_dataloaders(
         batch_size=batch_size,
         shuffle=shuffle_train,
         generator=generator,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0,
     )
     return LMLoaders(train=train, validation=validation)

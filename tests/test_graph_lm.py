@@ -235,6 +235,36 @@ def test_graph_builder_top_k_keeps_undirected_edges_symmetric():
     assert all((dst, src) in edges for src, dst in edges)
 
 
+def test_phase9_batched_graph_build_matches_default():
+    texts = [
+        "کتاب در کتابخانه بود",
+        "دانشجو کتاب تازه خواند",
+        "دانشگاه کتابخانه بزرگی دارد",
+    ]
+    tokenizer = PersianTokenizer().fit(texts)
+    full = build_graph_lm_graph(
+        texts,
+        tokenizer,
+        graph_relations=["cooccurrence", "pmi", "stem"],
+        top_k=3,
+    )
+    batched = build_graph_lm_graph(
+        texts,
+        tokenizer,
+        graph_relations=["cooccurrence", "pmi", "stem"],
+        top_k=3,
+        build_batch_size=1,
+    )
+
+    assert batched.graph_config["build_batch_size"] == 1
+    assert batched.graph_config["graph_build_batches"] == len(texts)
+    assert batched.nodes == full.nodes
+    assert batched.token_to_node == full.token_to_node
+    assert set(map(tuple, batched.edge_index.T.tolist())) == set(
+        map(tuple, full.edge_index.T.tolist())
+    )
+
+
 def test_graph_lm_checkpoint_is_self_contained_for_generation(tmp_path):
     texts = ["مجلس قانون را تصویب کرد", "دولت لایحه جدید آورد"]
     tokenizer = PersianTokenizer().fit(texts)
@@ -1277,3 +1307,192 @@ def test_phase7_low_data_controls_can_be_disabled(tmp_path):
     assert metrics["low_data_training"]["augmented_train_examples"] == len(corpus)
     assert "contrastive" not in metrics["history"][0].get("train_task_losses", {})
     assert metrics["stopped_early"] is False
+
+
+def test_phase9_graph_cache_reuses_artifact(tmp_path):
+    corpus = [
+        "رخشای گراف فارسی را می‌سازد",
+        "مدل زبانی از گراف کمک می‌گیرد",
+        "حافظه گرافی هنگام تولید استفاده می‌شود",
+    ]
+    cache_dir = tmp_path / "graph-cache"
+
+    first = train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(tmp_path / "phase9-cache-first"),
+            epochs=1,
+            batch_size=1,
+            validation_ratio=0.0,
+            block_size=8,
+            graph_relations=["cooccurrence", "stem"],
+            graph_build_batch_size=1,
+            graph_cache_dir=str(cache_dir),
+            device="cpu",
+            seed=0,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=8,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="gcn",
+            graph_hidden_dim=8,
+        ),
+        graph_encoder="gcn",
+    )
+    second = train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(tmp_path / "phase9-cache-second"),
+            epochs=1,
+            batch_size=1,
+            validation_ratio=0.0,
+            block_size=8,
+            graph_relations=["cooccurrence", "stem"],
+            graph_build_batch_size=1,
+            graph_cache_dir=str(cache_dir),
+            device="cpu",
+            seed=0,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=8,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="gcn",
+            graph_hidden_dim=8,
+        ),
+        graph_encoder="gcn",
+    )
+
+    assert first["graph_scalability"]["cache_enabled"] is True
+    assert first["graph_scalability"]["cache_hit"] is False
+    assert second["graph_scalability"]["cache_hit"] is True
+    assert (tmp_path / "phase9-cache-first" / "training_state.pt").exists()
+
+
+def test_phase9_resume_continues_training_state(tmp_path):
+    corpus = [
+        "رخشای مدل زبانی فارسی است",
+        "ادامه آموزش از checkpoint انجام می‌شود",
+        "فاز مقیاس پذیری برای داده بزرگ است",
+    ]
+    output_dir = tmp_path / "phase9-resume"
+
+    first = train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(output_dir),
+            epochs=1,
+            batch_size=1,
+            validation_ratio=0.0,
+            block_size=8,
+            device="cpu",
+            seed=0,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=8,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="none",
+        ),
+        graph_encoder="none",
+    )
+    resumed = train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(output_dir),
+            epochs=2,
+            batch_size=1,
+            validation_ratio=0.0,
+            block_size=8,
+            resume_from=str(output_dir),
+            device="cpu",
+            seed=0,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=8,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="none",
+        ),
+        graph_encoder="none",
+    )
+
+    assert first["epochs_ran"] == 1
+    assert resumed["resumed_from"] == str(output_dir)
+    assert resumed["history"][0]["epoch"] == 1
+    assert resumed["history"][-1]["epoch"] == 2
+    assert resumed["epochs_ran"] == 2
+
+
+def test_phase9_cli_accepts_scalability_options(tmp_path):
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text(
+        "کتاب در کتابخانه ماند\n"
+        "دانشجو کتاب تازه خواند\n"
+        "گراف فارسی برای مدل مفید است\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "phase9-cli"
+    cache_dir = tmp_path / "cli-cache"
+
+    result = main(
+        [
+            "lm-train",
+            "--corpus",
+            str(corpus),
+            "--output-dir",
+            str(output_dir),
+            "--graph-encoder",
+            "gcn",
+            "--graph-relations",
+            "cooccurrence",
+            "stem",
+            "--graph-build-batch-size",
+            "1",
+            "--graph-cache-dir",
+            str(cache_dir),
+            "--dataloader-num-workers",
+            "0",
+            "--dataloader-pin-memory",
+            "--amp",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "1",
+            "--block-size",
+            "8",
+            "--d-model",
+            "8",
+            "--n-heads",
+            "2",
+            "--n-layers",
+            "1",
+            "--dim-feedforward",
+            "16",
+            "--graph-hidden-dim",
+            "8",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    assert result == 0
+    metrics = json.loads((output_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["training_config"]["graph_build_batch_size"] == 1
+    assert metrics["training_config"]["dataloader_pin_memory"] is True
+    assert metrics["training_config"]["amp"] is True
+    assert metrics["graph_scalability"]["cache_enabled"] is True
+    assert metrics["graph_scalability"]["graph_build_batches"] >= 1

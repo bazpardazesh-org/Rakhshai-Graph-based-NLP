@@ -133,6 +133,42 @@ class GraphLMGraph:
         with Path(path).open("w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
 
+    def save_artifact(self, path: str | Path) -> None:
+        payload: dict[str, object] = {
+            "version": 1,
+            "nodes": self.nodes,
+            "token_to_node": self.token_to_node,
+            "graph_config": self.graph_config,
+            "edge_index": torch.tensor(self.edge_index, dtype=torch.long),
+            "edge_weight": torch.tensor(self.edge_weight, dtype=torch.float32),
+            "directed": self.directed,
+        }
+        if self.edge_type is not None:
+            payload["edge_type"] = torch.tensor(self.edge_type, dtype=torch.long)
+        if self.node_types is not None:
+            payload["node_types"] = self.node_types
+        torch.save(payload, path)
+
+    @classmethod
+    def load_artifact(
+        cls,
+        path: str | Path,
+        *,
+        map_location: str | torch.device = "cpu",
+    ) -> "GraphLMGraph":
+        state = torch.load(path, map_location=map_location)
+        edge_type = state.get("edge_type")
+        return cls(
+            nodes=list(state["nodes"]),
+            token_to_node={int(k): int(v) for k, v in state["token_to_node"].items()},
+            graph_config=dict(state.get("graph_config", {})),
+            edge_index=state["edge_index"].detach().cpu().numpy(),
+            edge_weight=state["edge_weight"].detach().cpu().numpy(),
+            edge_type=None if edge_type is None else edge_type.detach().cpu().numpy(),
+            node_types=state.get("node_types"),
+            directed=bool(state.get("directed", False)),
+        )
+
 
 def _split_units(texts: Sequence[str], scope: str) -> list[str]:
     if scope == "corpus":
@@ -193,6 +229,43 @@ def _cooccurrence_edges(
                 if not directed:
                     edges[(dst, src)] = edges.get((dst, src), 0.0) + weight
     return edges, counts, float(max(1, total_tokens))
+
+
+def _cooccurrence_edges_batched(
+    unit_ids: Sequence[Sequence[int]],
+    token_to_node: dict[int, int],
+    *,
+    window_size: int,
+    directed: bool,
+    batch_size: int | None,
+) -> tuple[dict[tuple[int, int], float], Counter[int], float, int]:
+    if batch_size is None or batch_size <= 0:
+        edges, counts, total_tokens = _cooccurrence_edges(
+            unit_ids,
+            token_to_node,
+            window_size=window_size,
+            directed=directed,
+        )
+        return edges, counts, total_tokens, 1
+
+    merged_edges: dict[tuple[int, int], float] = {}
+    merged_counts: Counter[int] = Counter()
+    total_tokens = 0.0
+    batches = 0
+    for start in range(0, len(unit_ids), batch_size):
+        chunk = unit_ids[start : start + batch_size]
+        chunk_edges, chunk_counts, chunk_tokens = _cooccurrence_edges(
+            chunk,
+            token_to_node,
+            window_size=window_size,
+            directed=directed,
+        )
+        for edge, weight in chunk_edges.items():
+            merged_edges[edge] = merged_edges.get(edge, 0.0) + weight
+        merged_counts.update(chunk_counts)
+        total_tokens += chunk_tokens
+        batches += 1
+    return merged_edges, merged_counts, float(max(1.0, total_tokens)), max(1, batches)
 
 
 def _normalise_relations(relations: Sequence[str] | str | None) -> list[str]:
@@ -599,6 +672,7 @@ def build_graph_lm_graph(
     semantic_similarity_threshold: float = 0.6,
     semantic_top_k: int | None = 4,
     topic_top_k: int = 8,
+    build_batch_size: int | None = None,
 ) -> GraphLMGraph:
     """Build a weighted token graph for LM fusion.
 
@@ -644,11 +718,12 @@ def build_graph_lm_graph(
     nodes = [tokenizer.id_to_token[token_id] for token_id in kept_token_ids]
     unit_ids = _token_ids_for_units(units, tokenizer, token_to_node)
     document_unit_ids = _token_ids_for_units(document_units, tokenizer, token_to_node)
-    base_edges, counts, total_tokens = _cooccurrence_edges(
+    base_edges, counts, total_tokens, graph_build_batches = _cooccurrence_edges_batched(
         unit_ids,
         token_to_node,
         window_size=window_size,
         directed=directed,
+        batch_size=build_batch_size,
     )
     edges: dict[tuple[int, int], float] = {}
     edge_types: dict[tuple[int, int], int] = {}
@@ -889,6 +964,8 @@ def build_graph_lm_graph(
             "semantic_similarity_threshold": semantic_similarity_threshold,
             "semantic_top_k": semantic_top_k,
             "topic_top_k": topic_top_k,
+            "build_batch_size": build_batch_size,
+            "graph_build_batches": graph_build_batches,
         },
     )
 

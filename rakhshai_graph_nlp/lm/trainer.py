@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -18,7 +20,11 @@ from .augmentation import (
     mean_pool_hidden,
 )
 from .dataset import LMDataset, LMLoaders, build_lm_dataloaders
-from .graph_builder import build_graph_lm_graph, build_graph_lm_graph_from_token_ids
+from .graph_builder import (
+    GraphLMGraph,
+    build_graph_lm_graph,
+    build_graph_lm_graph_from_token_ids,
+)
 from .graph_memory import GraphMemoryArtifact, GraphMemoryConfig
 from .model import GenerationConfig, GraphCausalLM, GraphLMConfig, perplexity
 from .multitask import DEFAULT_TASK_LOSSES, MultiTaskLossConfig, compute_multitask_losses
@@ -79,6 +85,13 @@ class LMTrainingConfig:
     early_stopping_min_delta: float = 1e-4
     max_grad_norm: float = 1.0
     dynamic_graph: bool = False
+    graph_build_batch_size: int | None = None
+    graph_cache_dir: str | None = None
+    reuse_graph_cache: bool = True
+    dataloader_num_workers: int = 0
+    dataloader_pin_memory: bool = False
+    amp: bool = False
+    resume_from: str | None = None
     tokenizer_type: str = "word"
     tokenizer_half_space: str = "preserve"
     tokenizer_morph_splitting: bool = False
@@ -183,17 +196,30 @@ class LMTrainer:
                 validation_ratio=self.config.validation_ratio,
                 seed=self.config.seed,
                 shuffle_train=not self.config.curriculum_learning,
+                num_workers=self.config.dataloader_num_workers,
+                pin_memory=self.config.dataloader_pin_memory and self.device.type == "cuda",
             )
             return loaders
+        effective_pin_memory = self.config.dataloader_pin_memory and self.device.type == "cuda"
         generator = torch.Generator().manual_seed(self.config.seed)
+        loader_kwargs = {
+            "num_workers": self.config.dataloader_num_workers,
+            "pin_memory": effective_pin_memory,
+            "persistent_workers": self.config.dataloader_num_workers > 0,
+        }
         return LMLoaders(
             train=DataLoader(
                 dataset,
                 batch_size=self.config.batch_size,
                 shuffle=not self.config.curriculum_learning,
                 generator=generator,
+                **loader_kwargs,
             ),
-            validation=DataLoader(validation_dataset, batch_size=self.config.batch_size),
+            validation=DataLoader(
+                validation_dataset,
+                batch_size=self.config.batch_size,
+                **loader_kwargs,
+            ),
         )
 
     def _contrastive_loss(
@@ -239,7 +265,74 @@ class LMTrainer:
         )
         return 1.0 - F.cosine_similarity(anchor, positive.detach(), dim=-1).mean()
 
-    def _run_epoch(self, loader, optimizer: torch.optim.Optimizer | None = None) -> float:
+    def _amp_enabled(self) -> bool:
+        return bool(self.config.amp and self.device.type == "cuda")
+
+    def _save_training_state(
+        self,
+        output_dir: Path,
+        optimizer: torch.optim.Optimizer,
+        *,
+        epoch: int,
+        best_val: float,
+        best_epoch: int,
+        epochs_without_improvement: int,
+        history: list[dict[str, object]],
+    ) -> None:
+        state: dict[str, object] = {
+            "version": 1,
+            "epoch": epoch,
+            "best_validation_loss": best_val,
+            "best_epoch": best_epoch,
+            "epochs_without_improvement": epochs_without_improvement,
+            "history": history,
+            "optimizer_state_dict": optimizer.state_dict(),
+            "torch_rng_state": torch.get_rng_state(),
+        }
+        if torch.cuda.is_available():
+            state["cuda_rng_state_all"] = torch.cuda.get_rng_state_all()
+        torch.save(state, output_dir / "training_state.pt")
+
+    def _load_resume_state(
+        self,
+        optimizer: torch.optim.Optimizer,
+    ) -> tuple[int, float, int, int, list[dict[str, object]]]:
+        if not self.config.resume_from:
+            return 1, float("inf"), 0, 0, []
+
+        resume_dir = Path(self.config.resume_from)
+        model_path = resume_dir / "model.pt"
+        if model_path.exists():
+            state_dict = torch.load(model_path, map_location=self.device)
+            self.model.load_state_dict(state_dict, strict=False)
+
+        state_path = resume_dir / "training_state.pt"
+        if not state_path.exists():
+            return 1, float("inf"), 0, 0, []
+
+        state = torch.load(state_path, map_location=self.device)
+        optimizer_state = state.get("optimizer_state_dict")
+        if optimizer_state is not None:
+            optimizer.load_state_dict(optimizer_state)
+        torch_rng_state = state.get("torch_rng_state")
+        if torch_rng_state is not None:
+            torch.set_rng_state(torch_rng_state.detach().cpu())
+        cuda_rng_state = state.get("cuda_rng_state_all")
+        if cuda_rng_state is not None and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all(cuda_rng_state)
+        start_epoch = int(state.get("epoch", 0)) + 1
+        best_val = float(state.get("best_validation_loss", float("inf")))
+        best_epoch = int(state.get("best_epoch", 0))
+        epochs_without_improvement = int(state.get("epochs_without_improvement", 0))
+        history = list(state.get("history", []))
+        return start_epoch, best_val, best_epoch, epochs_without_improvement, history
+
+    def _run_epoch(
+        self,
+        loader,
+        optimizer: torch.optim.Optimizer | None = None,
+        scaler: torch.amp.GradScaler | None = None,
+    ) -> float:
         training = optimizer is not None
         self.model.train(training)
         total_loss = 0.0
@@ -269,36 +362,40 @@ class LMTrainer:
                 )
             if training:
                 optimizer.zero_grad(set_to_none=True)
-            output = self.model(
-                input_ids,
-                graph_data=graph_data,
-                token_node_ids=token_node_ids,
-                graph_embeddings=graph_embeddings,
-                labels=labels,
-                return_hidden=True,
-            )
-            loss, task_losses, batch_status = compute_multitask_losses(
-                self.model,
-                input_ids,
-                labels,
-                output,
-                graph_data=graph_data,
-                token_node_ids=token_node_ids,
-                config=multitask_config,
-            )
-            if training:
-                contrastive_loss = self._contrastive_loss(
+            with torch.amp.autocast(
+                device_type=self.device.type,
+                enabled=self._amp_enabled(),
+            ):
+                output = self.model(
                     input_ids,
-                    output,
-                    graph_data,
-                    token_node_ids,
+                    graph_data=graph_data,
+                    token_node_ids=token_node_ids,
+                    graph_embeddings=graph_embeddings,
+                    labels=labels,
+                    return_hidden=True,
                 )
-                if contrastive_loss is not None:
-                    task_losses["contrastive"] = contrastive_loss
-                    batch_status["contrastive"] = "active"
-                    loss = loss + contrastive_loss * float(self.config.contrastive_weight)
-                elif self.config.contrastive_weight > 0:
-                    batch_status["contrastive"] = "skipped"
+                loss, task_losses, batch_status = compute_multitask_losses(
+                    self.model,
+                    input_ids,
+                    labels,
+                    output,
+                    graph_data=graph_data,
+                    token_node_ids=token_node_ids,
+                    config=multitask_config,
+                )
+                if training:
+                    contrastive_loss = self._contrastive_loss(
+                        input_ids,
+                        output,
+                        graph_data,
+                        token_node_ids,
+                    )
+                    if contrastive_loss is not None:
+                        task_losses["contrastive"] = contrastive_loss
+                        batch_status["contrastive"] = "active"
+                        loss = loss + contrastive_loss * float(self.config.contrastive_weight)
+                    elif self.config.contrastive_weight > 0:
+                        batch_status["contrastive"] = "skipped"
             for key, value in task_losses.items():
                 loss_sums[key] = loss_sums.get(key, 0.0) + float(value.detach().cpu())
             for key, value in batch_status.items():
@@ -317,12 +414,22 @@ class LMTrainer:
                         value.detach().cpu()
                     )
             if training:
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.max_grad_norm,
-                )
-                optimizer.step()
+                if scaler is not None and scaler.is_enabled():
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        self.config.max_grad_norm,
+                    )
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        self.config.max_grad_norm,
+                    )
+                    optimizer.step()
             total_loss += float(loss.detach().cpu())
             total_batches += 1
         self._last_fusion_stats = {
@@ -345,17 +452,21 @@ class LMTrainer:
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay,
         )
-        history: list[dict[str, float | int]] = []
-        best_val = float("inf")
-        best_epoch = 0
-        epochs_without_improvement = 0
+        (
+            start_epoch,
+            best_val,
+            best_epoch,
+            epochs_without_improvement,
+            history,
+        ) = self._load_resume_state(optimizer)
+        scaler = torch.amp.GradScaler("cuda", enabled=self._amp_enabled())
         stopped_early = False
         early_stopping_reason = ""
         output_dir = Path(self.config.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        for epoch in range(1, self.config.epochs + 1):
-            train_loss = self._run_epoch(loaders.train, optimizer)
+        for epoch in range(start_epoch, self.config.epochs + 1):
+            train_loss = self._run_epoch(loaders.train, optimizer, scaler)
             train_fusion_stats = dict(self._last_fusion_stats)
             train_task_losses = dict(self._last_loss_stats)
             task_status = dict(self._last_task_status)
@@ -404,6 +515,15 @@ class LMTrainer:
                 )
             else:
                 epochs_without_improvement += 1
+            self._save_training_state(
+                output_dir,
+                optimizer,
+                epoch=epoch,
+                best_val=best_val,
+                best_epoch=best_epoch,
+                epochs_without_improvement=epochs_without_improvement,
+                history=history,
+            )
             if (
                 self.config.early_stopping_patience > 0
                 and epochs_without_improvement >= self.config.early_stopping_patience
@@ -423,6 +543,7 @@ class LMTrainer:
             "best_perplexity": perplexity(best_val),
             "best_epoch": best_epoch,
             "epochs_ran": len(history),
+            "resumed_from": self.config.resume_from,
             "stopped_early": stopped_early,
             "early_stopping_reason": early_stopping_reason,
             "checkpoint_dir": str(output_dir),
@@ -482,6 +603,120 @@ def _tokenizer_stats(
     }
 
 
+def _graph_cache_key(
+    corpus: Sequence[str],
+    tokenizer: PersianTokenizer,
+    graph_params: dict[str, object],
+) -> str:
+    payload = {
+        "corpus": list(corpus),
+        "tokenizer": {
+            "tokenizer_type": tokenizer.tokenizer_type,
+            "vocab": tokenizer.token_to_id,
+            "keep_half_space": tokenizer.keep_half_space,
+            "morph_splitting": tokenizer.morph_splitting,
+            "compound_verb_mode": tokenizer.compound_verb_mode,
+            "bpe_merges": tokenizer.bpe_merges,
+        },
+        "graph": graph_params,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _load_or_build_graph(
+    corpus: Sequence[str],
+    tokenizer: PersianTokenizer,
+    training_config: LMTrainingConfig,
+) -> tuple[GraphLMGraph, dict[str, object]]:
+    graph_params: dict[str, object] = {
+        "window_size": training_config.graph_window_size,
+        "min_count": training_config.graph_min_count,
+        "weighting": training_config.graph_weighting,
+        "min_edge_weight": training_config.graph_min_edge_weight,
+        "top_k": training_config.graph_top_k,
+        "directed": training_config.graph_directed,
+        "graph_scope": training_config.graph_scope,
+        "context_node_type": training_config.context_node_type,
+        "graph_relations": list(training_config.graph_relations or []),
+        "relation_weights": training_config.relation_weights or {},
+        "semantic_similarity_threshold": training_config.semantic_similarity_threshold,
+        "semantic_top_k": training_config.semantic_top_k,
+        "topic_top_k": training_config.topic_top_k,
+        "build_batch_size": training_config.graph_build_batch_size,
+    }
+    cache_key = _graph_cache_key(corpus, tokenizer, graph_params)
+    cache_path = None
+    cache_hit = False
+    started = time.perf_counter()
+
+    if training_config.graph_cache_dir:
+        cache_dir = Path(training_config.graph_cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = cache_dir / f"{cache_key}.graph.pt"
+        if training_config.reuse_graph_cache and cache_path.exists():
+            graph = GraphLMGraph.load_artifact(cache_path)
+            cache_hit = True
+        else:
+            graph = build_graph_lm_graph(
+                corpus,
+                tokenizer,
+                window_size=training_config.graph_window_size,
+                min_count=training_config.graph_min_count,
+                weighting=training_config.graph_weighting,
+                min_edge_weight=training_config.graph_min_edge_weight,
+                top_k=training_config.graph_top_k,
+                directed=training_config.graph_directed,
+                graph_scope=training_config.graph_scope,
+                context_node_type=training_config.context_node_type,
+                graph_relations=training_config.graph_relations,
+                relation_weights=training_config.relation_weights,
+                semantic_similarity_threshold=training_config.semantic_similarity_threshold,
+                semantic_top_k=training_config.semantic_top_k,
+                topic_top_k=training_config.topic_top_k,
+                build_batch_size=training_config.graph_build_batch_size,
+            )
+            graph.save_artifact(cache_path)
+    else:
+        graph = build_graph_lm_graph(
+            corpus,
+            tokenizer,
+            window_size=training_config.graph_window_size,
+            min_count=training_config.graph_min_count,
+            weighting=training_config.graph_weighting,
+            min_edge_weight=training_config.graph_min_edge_weight,
+            top_k=training_config.graph_top_k,
+            directed=training_config.graph_directed,
+            graph_scope=training_config.graph_scope,
+            context_node_type=training_config.context_node_type,
+            graph_relations=training_config.graph_relations,
+            relation_weights=training_config.relation_weights,
+            semantic_similarity_threshold=training_config.semantic_similarity_threshold,
+            semantic_top_k=training_config.semantic_top_k,
+            topic_top_k=training_config.topic_top_k,
+            build_batch_size=training_config.graph_build_batch_size,
+        )
+
+    elapsed = time.perf_counter() - started
+    graph.graph_config["cache_key"] = cache_key
+    graph.graph_config["cache_hit"] = cache_hit
+    if cache_path is not None:
+        graph.graph_config["cache_path"] = str(cache_path)
+    graph.graph_config["build_seconds"] = elapsed
+    report = {
+        "cache_enabled": training_config.graph_cache_dir is not None,
+        "cache_hit": cache_hit,
+        "cache_key": cache_key,
+        "cache_path": None if cache_path is None else str(cache_path),
+        "build_seconds": elapsed,
+        "build_batch_size": training_config.graph_build_batch_size,
+        "graph_build_batches": graph.graph_config.get("graph_build_batches", 1),
+        "num_nodes": graph.graph_config.get("num_nodes", len(graph.nodes)),
+        "num_edges": graph.graph_config.get("num_edges", int(graph.edge_index.shape[1])),
+    }
+    return graph, report
+
+
 def train_graph_lm(
     texts: Iterable[str],
     *,
@@ -535,23 +770,20 @@ def train_graph_lm(
         else None
     )
     graph = None
+    graph_scalability: dict[str, object] = {
+        "cache_enabled": False,
+        "cache_hit": False,
+        "build_seconds": 0.0,
+        "build_batch_size": training_config.graph_build_batch_size,
+        "graph_build_batches": 0,
+        "num_nodes": 0,
+        "num_edges": 0,
+    }
     if graph_encoder != "none":
-        graph = build_graph_lm_graph(
+        graph, graph_scalability = _load_or_build_graph(
             augmented_train_corpus,
             tokenizer,
-            window_size=training_config.graph_window_size,
-            min_count=training_config.graph_min_count,
-            weighting=training_config.graph_weighting,
-            min_edge_weight=training_config.graph_min_edge_weight,
-            top_k=training_config.graph_top_k,
-            directed=training_config.graph_directed,
-            graph_scope=training_config.graph_scope,
-            context_node_type=training_config.context_node_type,
-            graph_relations=training_config.graph_relations,
-            relation_weights=training_config.relation_weights,
-            semantic_similarity_threshold=training_config.semantic_similarity_threshold,
-            semantic_top_k=training_config.semantic_top_k,
-            topic_top_k=training_config.topic_top_k,
+            training_config,
         )
     cfg = model_config or GraphLMConfig(
         vocab_size=tokenizer.vocab_size,
@@ -592,6 +824,7 @@ def train_graph_lm(
             **graph.graph_config,
             "dynamic_graph": training_config.dynamic_graph,
             "graph_source": "train",
+            "scalability": graph_scalability,
             "low_data_training": {
                 "text_augmentation": training_config.text_augmentation,
                 "augmentation_ratio": training_config.augmentation_ratio,
@@ -616,6 +849,7 @@ def train_graph_lm(
         graph_memory=None if graph is None else GraphMemoryArtifact.from_graph(graph),
     )
     metrics = trainer.train(dataset, validation_dataset)
+    metrics["graph_scalability"] = graph_scalability
     metrics["tokenizer_stats"] = _tokenizer_stats(
         tokenizer,
         train_corpus,
