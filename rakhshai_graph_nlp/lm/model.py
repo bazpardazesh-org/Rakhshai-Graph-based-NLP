@@ -482,6 +482,10 @@ class GraphCausalLM(nn.Module):
         self.final_norm = nn.LayerNorm(config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
         self.lm_head.weight = self.token_embedding.weight
+        self.node_relation_head = nn.Linear(
+            config.d_model,
+            max(1, config.graph_edge_types),
+        )
         self.dropout = nn.Dropout(config.dropout)
 
     def _causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
@@ -508,6 +512,22 @@ class GraphCausalLM(nn.Module):
         graph_table = torch.zeros_like(token_table)
         graph_table[valid] = node_embeddings[token_node_ids[valid]]
         return graph_table
+
+    def _encode_graph_nodes(
+        self,
+        graph_data: Data | None,
+        token_node_ids: torch.Tensor | None,
+    ) -> torch.Tensor | None:
+        token_table = self.token_embedding.weight
+        if self.graph_encoder is None or graph_data is None or token_node_ids is None:
+            return None
+        token_node_ids = token_node_ids.to(token_table.device)
+        valid = token_node_ids >= 0
+        if not valid.any():
+            return None
+        node_features = token_table.new_zeros((graph_data.num_nodes, token_table.size(1)))
+        node_features[token_node_ids[valid]] = token_table[valid]
+        return self.graph_encoder(node_features, graph_data)
 
     def _graph_embeddings_for_input(
         self,
@@ -579,6 +599,7 @@ class GraphCausalLM(nn.Module):
         token_node_ids: torch.Tensor | None = None,
         graph_embeddings: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
+        return_hidden: bool = False,
     ) -> dict[str, torch.Tensor]:
         batch_size, seq_len = input_ids.shape
         if seq_len > self.config.max_seq_len:
@@ -633,6 +654,12 @@ class GraphCausalLM(nn.Module):
         hidden = self.final_norm(hidden)
         logits = self.lm_head(hidden)
         output = {"logits": logits}
+        if return_hidden:
+            output["hidden"] = hidden
+            if has_graph:
+                output["graph_embeddings"] = graph_embeddings
+            if subgraph_embeddings is not None:
+                output["subgraph_embeddings"] = subgraph_embeddings
         if fusion_stats:
             output["fusion_stats"] = fusion_stats
         if labels is not None:
@@ -768,7 +795,7 @@ class GraphCausalLM(nn.Module):
             config = GraphLMConfig(**json.load(f))
         model = cls(config)
         state = torch.load(model_path / "model.pt", map_location=map_location)
-        model.load_state_dict(state)
+        model.load_state_dict(state, strict=False)
         tokenizer = PersianTokenizer.load(model_path / "tokenizer.json")
         with (model_path / "generation_config.json").open(encoding="utf-8") as f:
             generation_config = GenerationConfig(**json.load(f))

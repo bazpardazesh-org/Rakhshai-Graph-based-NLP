@@ -843,3 +843,140 @@ def test_lm_cli_train_accepts_phase4_graph_reasoning_options(tmp_path):
     assert model_config["graph_node_importance"] is True
     assert graph_data is not None
     assert hasattr(graph_data, "node_type_id")
+
+
+def test_phase6_multitask_losses_are_enabled_by_default(tmp_path):
+    corpus = [
+        "مجلس قانون تازه را بررسی کرد",
+        "دولت درباره اقتصاد گزارش داد",
+        "دانشگاه برای دانشجویان کلاس برگزار کرد",
+    ]
+    output_dir = tmp_path / "phase6"
+
+    metrics = train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(output_dir),
+            epochs=1,
+            batch_size=1,
+            validation_ratio=0.0,
+            block_size=8,
+            graph_relations=["cooccurrence", "stem", "word_document"],
+            graph_relation_mode="embedding",
+            device="cpu",
+            seed=0,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=8,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="gcn",
+            graph_hidden_dim=8,
+        ),
+        graph_encoder="gcn",
+    )
+
+    row = metrics["history"][0]
+
+    assert "masked_token" in row["train_task_losses"]
+    assert "edge" in row["train_task_losses"]
+    assert "node_relation" in row["train_task_losses"]
+    assert row["task_status"]["masked_token"] == "active"
+    assert row["task_status"]["edge"] == "active"
+    assert metrics["training_config"]["task_losses"].startswith("next_token")
+
+
+def test_phase6_graph_losses_skip_without_graph(tmp_path):
+    corpus = [
+        "مدل زبانی متن فارسی را می‌خواند",
+        "آموزش چندوظیفه‌ای سیگنال بیشتری می‌دهد",
+    ]
+    output_dir = tmp_path / "phase6-no-graph"
+
+    metrics = train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(output_dir),
+            epochs=1,
+            batch_size=1,
+            validation_ratio=0.0,
+            block_size=8,
+            device="cpu",
+            seed=0,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=8,
+            d_model=8,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=16,
+            graph_encoder="none",
+        ),
+        graph_encoder="none",
+    )
+
+    row = metrics["history"][0]
+
+    assert row["task_status"]["masked_token"] == "active"
+    assert row["task_status"]["edge"] == "skipped"
+    assert "edge" not in row["train_task_losses"]
+
+
+def test_lm_cli_train_accepts_phase6_multitask_options(tmp_path):
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text(
+        "کتاب‌ها در کتابخانه ماندند\n"
+        "دانشجویان کتاب تازه خواندند\n"
+        "دانشگاه درباره کتابخانه گزارش داد\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "phase6-cli"
+
+    result = main(
+        [
+            "lm-train",
+            "--corpus",
+            str(corpus),
+            "--output-dir",
+            str(output_dir),
+            "--graph-encoder",
+            "gcn",
+            "--task-losses",
+            "next_token,masked_token,edge,node_relation,graph_text,sentence_graph",
+            "--masked-token-weight",
+            "0.2",
+            "--edge-prediction-weight",
+            "0.05",
+            "--node-relation-weight",
+            "0.05",
+            "--mask-probability",
+            "0.2",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "1",
+            "--block-size",
+            "8",
+            "--d-model",
+            "8",
+            "--n-heads",
+            "2",
+            "--n-layers",
+            "1",
+            "--dim-feedforward",
+            "16",
+            "--graph-hidden-dim",
+            "8",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    assert result == 0
+    metrics = json.loads((output_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["training_config"]["masked_token_weight"] == 0.2
+    assert metrics["history"][0]["task_status"]["masked_token"] == "active"

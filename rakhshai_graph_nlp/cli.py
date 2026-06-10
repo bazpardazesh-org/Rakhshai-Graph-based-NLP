@@ -234,6 +234,16 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         fusion_levels=args.fusion_levels,
         graph_fusion_scale=args.graph_fusion_scale,
         graph_fusion_dropout=args.graph_fusion_dropout,
+        task_losses=args.task_losses,
+        next_token_weight=args.next_token_weight,
+        masked_token_weight=args.masked_token_weight,
+        edge_prediction_weight=args.edge_prediction_weight,
+        neighbor_prediction_weight=args.neighbor_prediction_weight,
+        node_relation_weight=args.node_relation_weight,
+        graph_text_alignment_weight=args.graph_text_alignment_weight,
+        sentence_graph_alignment_weight=args.sentence_graph_alignment_weight,
+        mask_probability=args.mask_probability,
+        negative_samples=args.negative_samples,
         dynamic_graph=args.dynamic_graph,
         tokenizer_type=args.tokenizer_type,
         tokenizer_half_space=args.tokenizer_half_space,
@@ -478,6 +488,36 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.0,
         help="Dropout applied to graph embeddings inside fusion",
+    )
+    train.add_argument(
+        "--task-losses",
+        default=(
+            "next_token,masked_token,edge,neighbor,node_relation,"
+            "graph_text,sentence_graph"
+        ),
+        help=(
+            "Comma-separated multi-task losses. Use all, or any of next_token, "
+            "masked_token, edge, neighbor, node_relation, graph_text, sentence_graph"
+        ),
+    )
+    train.add_argument("--next-token-weight", type=float, default=1.0)
+    train.add_argument("--masked-token-weight", type=float, default=0.25)
+    train.add_argument("--edge-prediction-weight", type=float, default=0.1)
+    train.add_argument("--neighbor-prediction-weight", type=float, default=0.1)
+    train.add_argument("--node-relation-weight", type=float, default=0.1)
+    train.add_argument("--graph-text-alignment-weight", type=float, default=0.1)
+    train.add_argument("--sentence-graph-alignment-weight", type=float, default=0.1)
+    train.add_argument(
+        "--mask-probability",
+        type=float,
+        default=0.15,
+        help="Probability of selecting non-padding tokens for masked-token loss",
+    )
+    train.add_argument(
+        "--negative-samples",
+        type=int,
+        default=1,
+        help="Number of sampled negative graph pairs per positive edge",
     )
     train.add_argument("--d-model", type=int, default=128)
     train.add_argument("--n-heads", type=int, default=4)

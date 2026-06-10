@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from .dataset import LMDataset, LMLoaders, build_lm_dataloaders
 from .graph_builder import build_graph_lm_graph, build_graph_lm_graph_from_token_ids
 from .model import GenerationConfig, GraphCausalLM, GraphLMConfig, perplexity
+from .multitask import DEFAULT_TASK_LOSSES, MultiTaskLossConfig, compute_multitask_losses
 from .tokenizer import PersianTokenizer
 
 
@@ -47,6 +48,16 @@ class LMTrainingConfig:
     fusion_levels: str = "token"
     graph_fusion_scale: float = 1.0
     graph_fusion_dropout: float = 0.0
+    task_losses: str = ",".join(DEFAULT_TASK_LOSSES)
+    next_token_weight: float = 1.0
+    masked_token_weight: float = 0.25
+    edge_prediction_weight: float = 0.1
+    neighbor_prediction_weight: float = 0.1
+    node_relation_weight: float = 0.1
+    graph_text_alignment_weight: float = 0.1
+    sentence_graph_alignment_weight: float = 0.1
+    mask_probability: float = 0.15
+    negative_samples: int = 1
     dynamic_graph: bool = False
     tokenizer_type: str = "word"
     tokenizer_half_space: str = "preserve"
@@ -85,6 +96,22 @@ class LMTrainer:
         if self.token_node_ids is not None:
             self.token_node_ids = self.token_node_ids.to(self.device)
         self._last_fusion_stats: dict[str, float] = {}
+        self._last_loss_stats: dict[str, float] = {}
+        self._last_task_status: dict[str, str] = {}
+
+    def _multitask_config(self) -> MultiTaskLossConfig:
+        return MultiTaskLossConfig(
+            task_losses=self.config.task_losses,
+            next_token_weight=self.config.next_token_weight,
+            masked_token_weight=self.config.masked_token_weight,
+            edge_prediction_weight=self.config.edge_prediction_weight,
+            neighbor_prediction_weight=self.config.neighbor_prediction_weight,
+            node_relation_weight=self.config.node_relation_weight,
+            graph_text_alignment_weight=self.config.graph_text_alignment_weight,
+            sentence_graph_alignment_weight=self.config.sentence_graph_alignment_weight,
+            mask_probability=self.config.mask_probability,
+            negative_samples=self.config.negative_samples,
+        )
 
     def _causal_dynamic_graph_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
         step_embeddings: list[torch.Tensor] = []
@@ -148,6 +175,9 @@ class LMTrainer:
         total_batches = 0
         fusion_sums: dict[str, float] = {}
         fusion_count = 0
+        loss_sums: dict[str, float] = {}
+        task_status: dict[str, str] = {}
+        multitask_config = self._multitask_config()
         for input_ids, labels in loader:
             input_ids = input_ids.to(self.device)
             labels = labels.to(self.device)
@@ -166,8 +196,27 @@ class LMTrainer:
                 token_node_ids=token_node_ids,
                 graph_embeddings=graph_embeddings,
                 labels=labels,
+                return_hidden=True,
             )
-            loss = output["loss"]
+            loss, task_losses, batch_status = compute_multitask_losses(
+                self.model,
+                input_ids,
+                labels,
+                output,
+                graph_data=graph_data,
+                token_node_ids=token_node_ids,
+                config=multitask_config,
+            )
+            for key, value in task_losses.items():
+                loss_sums[key] = loss_sums.get(key, 0.0) + float(value.detach().cpu())
+            for key, value in batch_status.items():
+                previous = task_status.get(key)
+                if previous == "active" or value == "active":
+                    task_status[key] = "active"
+                elif previous == "skipped" or value == "skipped":
+                    task_status[key] = "skipped"
+                else:
+                    task_status[key] = value
             fusion_stats = output.get("fusion_stats", {})
             if fusion_stats:
                 fusion_count += 1
@@ -184,6 +233,10 @@ class LMTrainer:
         self._last_fusion_stats = {
             key: value / max(1, fusion_count) for key, value in fusion_sums.items()
         }
+        self._last_loss_stats = {
+            key: value / max(1, total_batches) for key, value in loss_sums.items()
+        }
+        self._last_task_status = task_status
         return total_loss / max(1, total_batches)
 
     def train(
@@ -205,13 +258,18 @@ class LMTrainer:
         for epoch in range(1, self.config.epochs + 1):
             train_loss = self._run_epoch(loaders.train, optimizer)
             train_fusion_stats = dict(self._last_fusion_stats)
+            train_task_losses = dict(self._last_loss_stats)
+            task_status = dict(self._last_task_status)
             if loaders.validation is not None:
                 with torch.no_grad():
                     val_loss = self._run_epoch(loaders.validation)
                 validation_fusion_stats = dict(self._last_fusion_stats)
+                validation_task_losses = dict(self._last_loss_stats)
+                task_status.update(self._last_task_status)
             else:
                 val_loss = train_loss
                 validation_fusion_stats = train_fusion_stats
+                validation_task_losses = train_task_losses
             row = {
                 "epoch": epoch,
                 "train_loss": train_loss,
@@ -220,8 +278,14 @@ class LMTrainer:
             }
             if train_fusion_stats:
                 row["train_fusion"] = train_fusion_stats
+            if train_task_losses:
+                row["train_task_losses"] = train_task_losses
+            if task_status:
+                row["task_status"] = task_status
             if validation_fusion_stats:
                 row["validation_fusion"] = validation_fusion_stats
+            if validation_task_losses:
+                row["validation_task_losses"] = validation_task_losses
             history.append(row)
             if val_loss <= best_val:
                 best_val = val_loss

@@ -454,6 +454,31 @@ rgnn-cli lm-train \
   --output-dir runs/baseline-lm
 ```
 
+آموزش چندوظیفه‌ای Graph-LM به صورت پیش‌فرض فعال است. در هر batch
+علاوه بر `next_token`، سیگنال‌های `masked_token`، `edge`، `neighbor`،
+`node_relation`، `graph_text` و `sentence_graph` هم در صورت وجود داده لازم
+محاسبه می‌شوند. اگر مدل را بدون گراف اجرا کنید، lossهای گرافی خودکار skip
+می‌شوند و baseline بدون گراف همچنان قابل مقایسه می‌ماند.
+
+نمونه اجرای کنترل‌شده با وزن‌دهی lossهای چندوظیفه‌ای:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/expanded_persian_lm.txt \
+  --graph-encoder gcn \
+  --graph-relations cooccurrence pmi stem word_document topic_document \
+  --task-losses next_token,masked_token,edge,node_relation,graph_text,sentence_graph \
+  --next-token-weight 1.0 \
+  --masked-token-weight 0.25 \
+  --edge-prediction-weight 0.1 \
+  --node-relation-weight 0.1 \
+  --graph-text-alignment-weight 0.1 \
+  --sentence-graph-alignment-weight 0.1 \
+  --mask-probability 0.15 \
+  --negative-samples 1 \
+  --output-dir runs/multitask-graph-lm
+```
+
 تولید متن با checkpoint ذخیره‌شده:
 
 ```bash
@@ -495,6 +520,13 @@ runs/graph-lm/
 | `--fusion-levels` | انتخاب سطح‌های fusion؛ مثل `token` یا `token,sentence,subgraph` |
 | `--graph-fusion-scale` | ضریب شدت embedding گرافی قبل از fusion |
 | `--graph-fusion-dropout` | dropout روی embedding گرافی برای کاهش وابستگی بیش از حد به گراف |
+| `--task-losses` | انتخاب lossهای چندوظیفه‌ای؛ پیش‌فرض همه taskهای چندوظیفه‌ای فعال‌اند |
+| `--next-token-weight` و `--masked-token-weight` | وزن loss زبانی causal و masked-token |
+| `--edge-prediction-weight` و `--neighbor-prediction-weight` | وزن پیش‌بینی یال و همسایه در گراف |
+| `--node-relation-weight` | وزن تشخیص نوع رابطه از روی `edge_type` |
+| `--graph-text-alignment-weight` و `--sentence-graph-alignment-weight` | وزن alignment بین نمایش متن و گراف |
+| `--mask-probability` | احتمال انتخاب tokenهای غیر padding برای masked-token prediction |
+| `--negative-samples` | تعداد نمونه منفی برای هر یال مثبت در lossهای گرافی |
 | `--output-dir` | مسیر ذخیره checkpoint، configها، tokenizer و گزارش‌ها |
 | `--temperature` | کنترل تصادفی‌بودن تولید متن؛ مقدار کمتر خروجی محافظه‌کارتر می‌دهد |
 | `--top-k` | محدودکردن نمونه‌گیری به k توکن محتمل‌تر |
