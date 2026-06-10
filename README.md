@@ -378,6 +378,22 @@ rgnn-cli lm-train \
   --output-dir runs/graph-lm
 ```
 
+در حالت پیش‌فرض، مسیر Graph-LM گراف چندرابطه‌ای فاز ۳ را می‌سازد:
+
+```text
+cooccurrence + pmi + stem + subword + word_document + topic_document
+```
+
+برای بازتولید baseline سادهٔ قدیمی فاز ۱، relation را صریح محدود کنید:
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/expanded_persian_lm.txt \
+  --graph-encoder gcn \
+  --graph-relations cooccurrence \
+  --output-dir runs/v1-simple-graph
+```
+
 آموزش baseline بدون گراف برای مقایسه:
 
 ```bash
@@ -419,6 +435,8 @@ runs/graph-lm/
 | --- | --- |
 | `--corpus` | مسیر فایل متن خام فارسی برای آموزش LM |
 | `--graph-encoder` | انتخاب `gcn`، `gat`، `graphsage` یا `none` برای baseline بدون گراف |
+| `--graph-relations` | انتخاب رابطه‌های گراف؛ اگر ندهید preset چندرابطه‌ای فاز ۳ فعال است |
+| `--relation-weights` | وزن‌دهی relationها، مثل `pmi=0.7,stem=0.5` |
 | `--fusion` | انتخاب روش ترکیب embedding متنی و گرافی، مثل `gated` |
 | `--output-dir` | مسیر ذخیره checkpoint، configها، tokenizer و گزارش‌ها |
 | `--temperature` | کنترل تصادفی‌بودن تولید متن؛ مقدار کمتر خروجی محافظه‌کارتر می‌دهد |

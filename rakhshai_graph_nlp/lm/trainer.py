@@ -36,6 +36,11 @@ class LMTrainingConfig:
     graph_directed: bool = False
     graph_scope: str = "document"
     context_node_type: str = "none"
+    graph_relations: Sequence[str] | None = None
+    relation_weights: dict[str, float] | None = None
+    semantic_similarity_threshold: float = 0.6
+    semantic_top_k: int | None = 4
+    topic_top_k: int = 8
     dynamic_graph: bool = False
     tokenizer_type: str = "word"
     tokenizer_half_space: str = "preserve"
@@ -317,6 +322,11 @@ def train_graph_lm(
             directed=training_config.graph_directed,
             graph_scope=training_config.graph_scope,
             context_node_type=training_config.context_node_type,
+            graph_relations=training_config.graph_relations,
+            relation_weights=training_config.relation_weights,
+            semantic_similarity_threshold=training_config.semantic_similarity_threshold,
+            semantic_top_k=training_config.semantic_top_k,
+            topic_top_k=training_config.topic_top_k,
         )
     cfg = model_config or GraphLMConfig(
         vocab_size=tokenizer.vocab_size,
@@ -330,7 +340,11 @@ def train_graph_lm(
     cfg.graph_encoder = graph_encoder
     cfg.fusion = fusion
     cfg.pad_token_id = tokenizer.pad_id
-    cfg.graph_edge_types = 2 if training_config.context_node_type != "none" else 1
+    cfg.graph_edge_types = (
+        len(graph.graph_config.get("edge_types", {"cooccurrence": 0}))
+        if graph is not None
+        else 1
+    )
     model = GraphCausalLM(cfg)
     graph_config = (
         {

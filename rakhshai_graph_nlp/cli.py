@@ -186,6 +186,20 @@ def _load_corpus(path: str) -> list[str]:
     return texts
 
 
+def _parse_relation_weights(raw: str | None) -> dict[str, float] | None:
+    if not raw:
+        return None
+    weights: dict[str, float] = {}
+    for item in raw.split(","):
+        if not item.strip():
+            continue
+        if "=" not in item:
+            raise ValueError("--relation-weights entries must use relation=value")
+        relation, value = item.split("=", 1)
+        weights[relation.strip()] = float(value)
+    return weights
+
+
 def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
     if args.d_model % args.n_heads != 0:
         raise ValueError("--d-model must be divisible by --n-heads")
@@ -209,6 +223,11 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         graph_directed=args.graph_directed,
         graph_scope=args.graph_scope,
         context_node_type=args.context_node_type,
+        graph_relations=args.graph_relations,
+        relation_weights=_parse_relation_weights(args.relation_weights),
+        semantic_similarity_threshold=args.semantic_similarity_threshold,
+        semantic_top_k=args.semantic_top_k,
+        topic_top_k=args.topic_top_k,
         dynamic_graph=args.dynamic_graph,
         tokenizer_type=args.tokenizer_type,
         tokenizer_half_space=args.tokenizer_half_space,
@@ -282,6 +301,13 @@ def _run_generate(args: argparse.Namespace) -> str:
             directed=bool(graph_config.get("directed", False)),
             graph_scope=str(graph_config.get("graph_scope", "document")),
             context_node_type=str(graph_config.get("context_node_type", "none")),
+            graph_relations=graph_config.get("enabled_relations"),  # type: ignore[arg-type]
+            relation_weights=graph_config.get("relation_weights"),  # type: ignore[arg-type]
+            semantic_similarity_threshold=float(
+                graph_config.get("semantic_similarity_threshold", 0.6)
+            ),
+            semantic_top_k=graph_config.get("semantic_top_k"),  # type: ignore[arg-type]
+            topic_top_k=int(graph_config.get("topic_top_k", 8)),
         )
         graph_data = graph.to_pyg_data().to(device)
         token_node_ids = graph.token_node_ids(tokenizer.vocab_size).to(device)
@@ -457,6 +483,32 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         choices=["none", "document", "sentence"],
         default="none",
     )
+    train.add_argument(
+        "--graph-relations",
+        nargs="+",
+        default=None,
+        choices=[
+            "cooccurrence",
+            "pmi",
+            "ppmi",
+            "dependency",
+            "stem",
+            "subword",
+            "semantic_similarity",
+            "semantic",
+            "word_document",
+            "topic_document",
+        ],
+        help="Relation types to include in the Phase 3 multi-relation graph",
+    )
+    train.add_argument(
+        "--relation-weights",
+        default=None,
+        help="Comma-separated relation weights, for example cooccurrence=1,pmi=0.8",
+    )
+    train.add_argument("--semantic-similarity-threshold", type=float, default=0.6)
+    train.add_argument("--semantic-top-k", type=int, default=4)
+    train.add_argument("--topic-top-k", type=int, default=8)
     train.add_argument("--dynamic-graph", action="store_true")
     train.add_argument(
         "--tokenizer-type",

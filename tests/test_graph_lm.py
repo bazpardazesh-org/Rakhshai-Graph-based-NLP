@@ -163,6 +163,56 @@ def test_graph_builder_supports_ppmi_directed_pruned_context_graph():
     assert hasattr(data, "edge_type")
 
 
+def test_graph_builder_builds_phase3_multi_relation_graph():
+    texts = [
+        "کتاب‌ها و کتابخانه برای دانشجویان مفید هستند",
+        "کتاب و دانشجو در دانشگاه تهران دیده شدند",
+        "دانشگاه و دانشجویان درباره کتابخانه گفتند",
+    ]
+    tokenizer = PersianTokenizer(
+        tokenizer_type="char_chunk",
+        morph_splitting=True,
+    ).fit(texts)
+    graph = build_graph_lm_graph(
+        texts,
+        tokenizer,
+        window_size=2,
+        graph_relations=[
+            "cooccurrence",
+            "pmi",
+            "stem",
+            "subword",
+            "semantic_similarity",
+            "word_document",
+            "topic_document",
+        ],
+        relation_weights={"pmi": 0.5, "stem": 0.75},
+        semantic_similarity_threshold=0.2,
+        semantic_top_k=2,
+        topic_top_k=2,
+    )
+    data = graph.to_pyg_data()
+    edge_types = graph.graph_config["edge_types"]
+
+    assert set(graph.graph_config["enabled_relations"]) == {
+        "cooccurrence",
+        "pmi",
+        "stem",
+        "subword",
+        "semantic_similarity",
+        "word_document",
+        "topic_document",
+    }
+    assert edge_types["cooccurrence"] == 0
+    assert edge_types["topic_document"] > edge_types["cooccurrence"]
+    assert graph.graph_config["relation_weights"]["pmi"] == 0.5
+    assert graph.graph_config["node_type_counts"]["document"] == 3
+    assert graph.graph_config["node_type_counts"]["topic"] == 2
+    assert graph.graph_config["relation_edge_counts"]["word_document"] > 0
+    assert data.edge_type.numel() == data.edge_weight.numel()
+    assert int(data.edge_type.max()) < len(edge_types)
+
+
 def test_graph_builder_top_k_keeps_undirected_edges_symmetric():
     texts = [
         "الف ب پ ت ث",
@@ -228,6 +278,49 @@ def test_graph_lm_checkpoint_is_self_contained_for_generation(tmp_path):
             "cpu",
         ]
     ) == 0
+
+
+def test_phase3_graph_checkpoint_preserves_edge_types(tmp_path):
+    texts = [
+        "کتاب‌ها در کتابخانه ماندند",
+        "کتاب و کتابخانه برای دانشجویان مهم است",
+    ]
+    tokenizer = PersianTokenizer(morph_splitting=True).fit(texts)
+    graph = build_graph_lm_graph(
+        texts,
+        tokenizer,
+        graph_relations=["cooccurrence", "stem", "word_document"],
+    )
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=8,
+            d_model=16,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=32,
+            graph_encoder="gcn",
+            graph_hidden_dim=16,
+            graph_edge_types=len(graph.graph_config["edge_types"]),
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+
+    model.save_pretrained(
+        tmp_path,
+        tokenizer=tokenizer,
+        graph_config=graph.graph_config,
+        graph_data=graph.to_pyg_data(),
+        token_node_ids=graph.token_node_ids(tokenizer.vocab_size),
+    )
+    graph_data, token_node_ids = GraphCausalLM.load_graph_artifacts(tmp_path)
+
+    assert graph_data is not None
+    assert token_node_ids is not None
+    assert hasattr(graph_data, "edge_type")
+    assert graph_data.edge_type.numel() == graph_data.edge_weight.numel()
+    saved_config = json.loads((tmp_path / "graph_config.json").read_text(encoding="utf-8"))
+    assert saved_config["edge_types"]["word_document"] == graph.graph_config["edge_types"]["word_document"]
 
 
 def test_train_graph_lm_fits_tokenizer_on_train_split_only(tmp_path):
@@ -423,3 +516,61 @@ def test_lm_cli_train_writes_complete_checkpoint(tmp_path):
     metrics = json.loads((output_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["history"][0]["perplexity"] > 0
     assert metrics["tokenizer_stats"]["morph_splitting"] is True
+
+
+def test_lm_cli_train_accepts_phase3_graph_relations(tmp_path):
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text(
+        "کتاب‌ها در کتابخانه ماندند\n"
+        "دانشجویان کتاب تازه خواندند\n"
+        "دانشگاه درباره کتابخانه گزارش داد\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "phase3-graph-lm"
+
+    result = main(
+        [
+            "lm-train",
+            "--corpus",
+            str(corpus),
+            "--output-dir",
+            str(output_dir),
+            "--graph-encoder",
+            "gcn",
+            "--graph-relations",
+            "cooccurrence",
+            "pmi",
+            "stem",
+            "word_document",
+            "topic_document",
+            "--relation-weights",
+            "pmi=0.5,stem=0.8",
+            "--topic-top-k",
+            "2",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "1",
+            "--block-size",
+            "8",
+            "--d-model",
+            "16",
+            "--n-heads",
+            "2",
+            "--n-layers",
+            "1",
+            "--dim-feedforward",
+            "32",
+            "--graph-hidden-dim",
+            "16",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    assert result == 0
+    graph_config = json.loads((output_dir / "graph_config.json").read_text(encoding="utf-8"))
+    model_config = json.loads((output_dir / "config.json").read_text(encoding="utf-8"))
+    assert "topic_document" in graph_config["edge_types"]
+    assert graph_config["relation_weights"]["stem"] == 0.8
+    assert model_config["graph_edge_types"] == len(graph_config["edge_types"])
