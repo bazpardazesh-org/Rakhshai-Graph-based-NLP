@@ -17,6 +17,7 @@ from .features.tokenizer import tokenize
 from .graphs.graph import Graph
 from .graphs.text_graph import build_text_graph
 from .lm.graph_builder import build_graph_lm_graph
+from .lm.graph_memory import GraphMemoryArtifact, GraphMemoryConfig
 from .lm.model import GraphCausalLM, GraphLMConfig
 from .lm.trainer import LMTrainingConfig, train_graph_lm
 from .metrics import accuracy, macro_f1
@@ -314,9 +315,41 @@ def _run_generate(args: argparse.Namespace) -> str:
         args.model,
         map_location=device,
     )
+    graph_memory = None
+    graph_memory_config = GraphMemoryConfig(
+        enabled=args.graph_memory == "on",
+        top_k_nodes=args.graph_memory_top_k,
+        depth=args.graph_memory_depth,
+        max_edges=args.graph_memory_max_edges,
+        min_score=args.graph_memory_min_score,
+        relation_weights=_parse_relation_weights(args.graph_memory_relation_weights),
+    )
     dynamic_graph_config = None
     corpus_path = Path(args.model) / "corpus.txt"
-    if model.config.graph_encoder != "none" and bool(graph_config.get("dynamic_graph", False)):
+    if model.config.graph_encoder != "none" and args.graph_memory == "on":
+        graph_memory, saved_memory_config = GraphMemoryArtifact.load(
+            args.model,
+            map_location=device,
+        )
+        if graph_memory is None and corpus_path.exists():
+            graph_memory = GraphMemoryArtifact.from_corpus(
+                _load_corpus(str(corpus_path)),
+                tokenizer,
+                graph_config,
+            )
+        elif graph_memory is None and graph_data is not None and token_node_ids is not None:
+            graph_memory = GraphMemoryArtifact.from_pyg_data(
+                graph_data,
+                token_node_ids,
+                tokenizer,
+                graph_config,
+            )
+        graph_memory_config.enabled = saved_memory_config.enabled and graph_memory_config.enabled
+    if (
+        model.config.graph_encoder != "none"
+        and bool(graph_config.get("dynamic_graph", False))
+        and graph_memory is None
+    ):
         graph_data = None
         token_node_ids = None
         dynamic_graph_config = graph_config
@@ -348,11 +381,23 @@ def _run_generate(args: argparse.Namespace) -> str:
     else:
         graph_data = None
         token_node_ids = None
+    if graph_memory is not None and args.graph_memory_report_path:
+        report = graph_memory.retrieve(
+            args.prompt,
+            tokenizer,
+            config=graph_memory_config,
+        ).report
+        report_path = Path(args.graph_memory_report_path)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        with report_path.open("w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
     return model.generate(
         args.prompt,
         tokenizer,
         graph_data=graph_data,
         token_node_ids=token_node_ids,
+        graph_memory=graph_memory,
+        graph_memory_config=graph_memory_config,
         generation_config=generation_config,
         dynamic_graph_config=dynamic_graph_config,
         max_new_tokens=args.max_new_tokens,
@@ -718,6 +763,46 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     generate.add_argument("--temperature", type=float, default=None)
     generate.add_argument("--top-k", type=int, default=None)
     generate.add_argument("--repetition-penalty", type=float, default=None)
+    generate.add_argument(
+        "--graph-memory",
+        choices=["on", "off"],
+        default="on",
+        help="Use prompt-aware Graph Memory retrieval during generation",
+    )
+    generate.add_argument(
+        "--graph-memory-top-k",
+        type=int,
+        default=32,
+        help="Maximum graph memory nodes retrieved for the prompt",
+    )
+    generate.add_argument(
+        "--graph-memory-depth",
+        type=int,
+        default=1,
+        help="Neighbour expansion depth for graph memory retrieval",
+    )
+    generate.add_argument(
+        "--graph-memory-max-edges",
+        type=int,
+        default=256,
+        help="Maximum graph memory edges kept in the retrieved subgraph",
+    )
+    generate.add_argument(
+        "--graph-memory-min-score",
+        type=float,
+        default=0.0,
+        help="Minimum retrieval score for graph memory nodes",
+    )
+    generate.add_argument(
+        "--graph-memory-relation-weights",
+        default=None,
+        help="Optional relation=value weights for graph memory retrieval",
+    )
+    generate.add_argument(
+        "--graph-memory-report-path",
+        default=None,
+        help="Optional JSON path for graph memory retrieval diagnostics",
+    )
     generate.add_argument(
         "--device",
         choices=["cpu", "cuda"],

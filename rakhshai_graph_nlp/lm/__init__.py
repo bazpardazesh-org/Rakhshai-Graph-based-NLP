@@ -2,6 +2,7 @@
 
 from .dataset import LMDataset, build_lm_dataloaders
 from .graph_builder import GraphLMGraph, build_graph_lm_graph, build_graph_lm_graph_from_token_ids
+from .graph_memory import GraphMemoryArtifact, GraphMemoryConfig, RetrievedGraphContext
 from .model import GraphCausalLM, GraphLMConfig, GenerationConfig
 from .multitask import MultiTaskLossConfig, parse_task_losses
 from .tokenizer import PersianTokenizer
@@ -14,6 +15,9 @@ __all__ = [
     "GraphLMGraph",
     "build_graph_lm_graph",
     "build_graph_lm_graph_from_token_ids",
+    "GraphMemoryArtifact",
+    "GraphMemoryConfig",
+    "RetrievedGraphContext",
     "GraphCausalLM",
     "GraphLMConfig",
     "GenerationConfig",

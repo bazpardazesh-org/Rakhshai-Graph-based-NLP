@@ -13,6 +13,7 @@ from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.nn import GATConv, GCNConv, MessagePassing, RGCNConv
 
+from .graph_memory import GraphMemoryArtifact, GraphMemoryConfig
 from .tokenizer import PersianTokenizer
 
 
@@ -679,6 +680,8 @@ class GraphCausalLM(nn.Module):
         *,
         graph_data: Data | None = None,
         token_node_ids: torch.Tensor | None = None,
+        graph_memory: GraphMemoryArtifact | None = None,
+        graph_memory_config: GraphMemoryConfig | None = None,
         generation_config: GenerationConfig | None = None,
         dynamic_graph_config: dict[str, object] | None = None,
         max_new_tokens: int | None = None,
@@ -694,6 +697,18 @@ class GraphCausalLM(nn.Module):
         input_ids = torch.tensor([ids], dtype=torch.long, device=device)
         if graph_data is not None:
             graph_data = graph_data.to(device)
+
+        memory_context = None
+        if graph_memory is not None and self.graph_encoder is not None:
+            memory_context = graph_memory.retrieve(
+                prompt,
+                tokenizer,
+                config=graph_memory_config,
+                device=device,
+            )
+            if memory_context.graph_data is not None and memory_context.token_node_ids is not None:
+                graph_data = memory_context.graph_data
+                token_node_ids = memory_context.token_node_ids
 
         for _ in range(cfg.max_new_tokens):
             context = input_ids[:, -self.config.max_seq_len :]
@@ -750,6 +765,8 @@ class GraphCausalLM(nn.Module):
         graph_config: dict[str, object],
         graph_data: Data | None = None,
         token_node_ids: torch.Tensor | None = None,
+        graph_memory: GraphMemoryArtifact | None = None,
+        graph_memory_config: GraphMemoryConfig | None = None,
         generation_config: GenerationConfig | None = None,
     ) -> None:
         output_path = Path(output_dir)
@@ -780,6 +797,13 @@ class GraphCausalLM(nn.Module):
             if node_type_id is not None:
                 payload["node_type_id"] = node_type_id.detach().cpu()
             torch.save(payload, graph_artifact)
+            memory = graph_memory or GraphMemoryArtifact.from_pyg_data(
+                graph_data,
+                token_node_ids,
+                tokenizer,
+                graph_config,
+            )
+            memory.save(output_path, graph_memory_config)
         elif graph_artifact.exists():
             graph_artifact.unlink()
 

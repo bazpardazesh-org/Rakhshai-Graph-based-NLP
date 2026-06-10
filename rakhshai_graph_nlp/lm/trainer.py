@@ -19,6 +19,7 @@ from .augmentation import (
 )
 from .dataset import LMDataset, LMLoaders, build_lm_dataloaders
 from .graph_builder import build_graph_lm_graph, build_graph_lm_graph_from_token_ids
+from .graph_memory import GraphMemoryArtifact, GraphMemoryConfig
 from .model import GenerationConfig, GraphCausalLM, GraphLMConfig, perplexity
 from .multitask import DEFAULT_TASK_LOSSES, MultiTaskLossConfig, compute_multitask_losses
 from .tokenizer import PersianTokenizer
@@ -99,6 +100,7 @@ class LMTrainer:
         *,
         config: LMTrainingConfig,
         graph_config: dict[str, object],
+        graph_memory: GraphMemoryArtifact | None = None,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -106,6 +108,7 @@ class LMTrainer:
         self.token_node_ids = token_node_ids
         self.config = config
         self.graph_config = graph_config
+        self.graph_memory = graph_memory
         self.device = torch.device(
             "cuda" if config.device == "cuda" and torch.cuda.is_available() else "cpu"
         )
@@ -395,6 +398,8 @@ class LMTrainer:
                     graph_config=self.graph_config,
                     graph_data=self.graph_data,
                     token_node_ids=self.token_node_ids,
+                    graph_memory=self.graph_memory,
+                    graph_memory_config=GraphMemoryConfig(enabled=True),
                     generation_config=GenerationConfig(eos_token_id=self.tokenizer.eos_id),
                 )
             else:
@@ -608,6 +613,7 @@ def train_graph_lm(
         None if graph is None else graph.token_node_ids(tokenizer.vocab_size),
         config=training_config,
         graph_config=graph_config,
+        graph_memory=None if graph is None else GraphMemoryArtifact.from_graph(graph),
     )
     metrics = trainer.train(dataset, validation_dataset)
     metrics["tokenizer_stats"] = _tokenizer_stats(

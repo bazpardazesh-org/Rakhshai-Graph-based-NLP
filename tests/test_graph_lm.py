@@ -6,6 +6,8 @@ from rakhshai_graph_nlp.cli import main
 from rakhshai_graph_nlp.lm import (
     GraphCausalLM,
     GraphLMConfig,
+    GraphMemoryArtifact,
+    GraphMemoryConfig,
     LMDataset,
     PersianTokenizer,
     build_graph_lm_graph,
@@ -262,6 +264,8 @@ def test_graph_lm_checkpoint_is_self_contained_for_generation(tmp_path):
     graph_data, token_node_ids = GraphCausalLM.load_graph_artifacts(tmp_path)
 
     assert (tmp_path / "graph.pt").exists()
+    assert (tmp_path / "graph_memory.pt").exists()
+    assert (tmp_path / "graph_memory_config.json").exists()
     assert graph_data is not None
     assert token_node_ids is not None
     assert graph_data.edge_index.numel() > 0
@@ -278,6 +282,136 @@ def test_graph_lm_checkpoint_is_self_contained_for_generation(tmp_path):
             "cpu",
         ]
     ) == 0
+
+
+def test_phase8_graph_memory_retrieves_prompt_subgraph(tmp_path):
+    texts = [
+        "مجلس قانون تازه را تصویب کرد",
+        "دولت درباره لایحه اقتصادی گزارش داد",
+        "دانشگاه کتابخانه جدیدی ساخت",
+    ]
+    tokenizer = PersianTokenizer().fit(texts)
+    graph = build_graph_lm_graph(
+        texts,
+        tokenizer,
+        graph_relations=["cooccurrence", "word_document", "topic_document"],
+        topic_top_k=2,
+    )
+    memory = GraphMemoryArtifact.from_graph(graph)
+    context = memory.retrieve(
+        "مجلس قانون",
+        tokenizer,
+        config=GraphMemoryConfig(top_k_nodes=4, depth=1, max_edges=8),
+    )
+
+    assert context.graph_data is not None
+    assert context.token_node_ids is not None
+    assert context.graph_data.num_nodes <= 4
+    assert context.graph_data.edge_index.size(1) <= 8
+    assert context.report["retrieved_nodes"] <= 4
+    assert context.report["coverage"] > 0
+
+    memory.save(tmp_path)
+    loaded, config = GraphMemoryArtifact.load(tmp_path)
+    assert loaded is not None
+    assert config.enabled is True
+    assert loaded.nodes == memory.nodes
+
+
+def test_phase8_cli_generate_uses_graph_memory_by_default(tmp_path):
+    texts = ["مجلس قانون را تصویب کرد", "دولت لایحه جدید آورد"]
+    tokenizer = PersianTokenizer().fit(texts)
+    graph = build_graph_lm_graph(texts, tokenizer, window_size=2)
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=6,
+            d_model=16,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=32,
+            graph_encoder="gcn",
+            graph_hidden_dim=16,
+            fusion="gated",
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+    model.save_pretrained(
+        tmp_path,
+        tokenizer=tokenizer,
+        graph_config=graph.graph_config,
+        graph_data=graph.to_pyg_data(),
+        token_node_ids=graph.token_node_ids(tokenizer.vocab_size),
+        graph_memory=GraphMemoryArtifact.from_graph(graph),
+    )
+    report_path = tmp_path / "memory-report.json"
+
+    result = main(
+        [
+            "generate",
+            "--model",
+            str(tmp_path),
+            "--prompt",
+            "مجلس",
+            "--max-new-tokens",
+            "1",
+            "--graph-memory-report-path",
+            str(report_path),
+            "--device",
+            "cpu",
+        ]
+    )
+
+    assert result == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["enabled"] is True
+    assert report["retrieved_nodes"] > 0
+
+
+def test_phase8_cli_generate_can_disable_graph_memory(tmp_path):
+    texts = ["مجلس قانون را تصویب کرد", "دولت لایحه جدید آورد"]
+    tokenizer = PersianTokenizer().fit(texts)
+    graph = build_graph_lm_graph(texts, tokenizer, window_size=2)
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=6,
+            d_model=16,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=32,
+            graph_encoder="gcn",
+            graph_hidden_dim=16,
+            fusion="gated",
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+    model.save_pretrained(
+        tmp_path,
+        tokenizer=tokenizer,
+        graph_config=graph.graph_config,
+        graph_data=graph.to_pyg_data(),
+        token_node_ids=graph.token_node_ids(tokenizer.vocab_size),
+        graph_memory=GraphMemoryArtifact.from_graph(graph),
+    )
+
+    result = main(
+        [
+            "generate",
+            "--model",
+            str(tmp_path),
+            "--prompt",
+            "مجلس",
+            "--max-new-tokens",
+            "1",
+            "--graph-memory",
+            "off",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    assert result == 0
 
 
 def test_phase3_graph_checkpoint_preserves_edge_types(tmp_path):

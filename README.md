@@ -70,6 +70,10 @@ embedding گرافی تولید می‌کند، و سپس embedding توکن و 
   augmentation متنی، dropout گره/یال، subgraph sampling، contrastive learning،
   curriculum learning، early stopping و گزارش overfitting اجرا می‌شود تا در
   corpusهای کوچک کمتر حفظ کند و بهتر generalize کند.
+- **Graph Memory فاز ۸ برای زمان تولید:** checkpointهای گرافی اکنون حافظهٔ
+  گرافی جداگانه ذخیره می‌کنند. دستور `generate` به صورت پیش‌فرض از prompt
+  nodeها و subgraphهای مرتبط را retrieve می‌کند و همان زیرگراف محدود را به
+  fusion می‌دهد تا مدل به جای کل گراف، حافظهٔ مرتبط با prompt را مصرف کند.
 - **Baseline بدون گراف برای مقایسه منصفانه:** با `--graph-encoder none` می‌توانید
   همان Transformer causal LM را بدون GNN و fusion آموزش دهید و اثر واقعی گراف را
   با validation loss و perplexity بسنجید.
@@ -88,6 +92,7 @@ Persian Text
 → Rakhshai Graph Encoder (GCN / GraphSAGE / GAT / RGCN)
 → Adaptive Graph-Text Fusion
 → Low-Data Training Engine
+→ Prompt-aware Graph Memory
 → Transformer Causal LM
 → Text Generation
 ```
@@ -185,6 +190,19 @@ rgnn-cli generate \
   --temperature 0.8 \
   --top-k 50 \
   --repetition-penalty 1.2
+```
+
+در این دستور، Graph Memory به صورت پیش‌فرض فعال است. اگر checkpoint شامل
+`graph_memory.pt` باشد، همان حافظه بارگذاری می‌شود؛ اگر نباشد و `corpus.txt`
+در checkpoint وجود داشته باشد، حافظه از corpus و `graph_config.json` بازسازی
+می‌شود. برای خاموش‌کردن حافظه و برگشت به generate قبلی:
+
+```bash
+rgnn-cli generate \
+  --model runs/wiki-graph-lm \
+  --prompt "امروز در تهران" \
+  --max-new-tokens 100 \
+  --graph-memory off
 ```
 
 ## چرا گراف؟
@@ -535,8 +553,19 @@ rgnn-cli generate \
   --min-new-tokens 20 \
   --temperature 0.8 \
   --top-k 50 \
-  --repetition-penalty 1.2
+  --repetition-penalty 1.2 \
+  --graph-memory on \
+  --graph-memory-top-k 32 \
+  --graph-memory-depth 1 \
+  --graph-memory-report-path runs/graph-lm/memory-report.json
 ```
+
+وقتی `--graph-memory on` فعال باشد، generate ابتدا tokenهای prompt را به
+nodeهای حافظه وصل می‌کند، همسایه‌های مرتبط را با وزن relationها امتیاز می‌دهد،
+زیرگرافی محدود می‌سازد و همان زیرگراف را به Graph-LM می‌دهد. این حالت کمک
+می‌کند اطلاعات نامرتبط از کل گراف کمتر وارد generation شود. وقتی
+`--graph-memory off` باشد، retrieval انجام نمی‌شود و مدل مثل قبل از `graph.pt`
+ثابت، گراف پویا یا حالت بدون گراف استفاده می‌کند.
 
 خروجی checkpoint مدل زبانی کامل است و فقط به `model.pt` محدود نمی‌شود:
 
@@ -546,6 +575,9 @@ runs/graph-lm/
 ├── config.json
 ├── tokenizer.json
 ├── graph_config.json
+├── graph.pt
+├── graph_memory.pt
+├── graph_memory_config.json
 ├── generation_config.json
 ├── metrics.json
 └── corpus.txt
@@ -586,6 +618,13 @@ runs/graph-lm/
 | `--top-k` | محدودکردن نمونه‌گیری به k توکن محتمل‌تر |
 | `--min-new-tokens` | حداقل تعداد توکن جدید در تولید متن |
 | `--repetition-penalty` | کاهش تکرار توکن‌ها در خروجی generate |
+| `--graph-memory` | کنترل حافظه گرافی در generate؛ پیش‌فرض `on` است و با `off` خاموش می‌شود |
+| `--graph-memory-top-k` | حداکثر تعداد nodeهای حافظه که برای prompt بازیابی می‌شوند |
+| `--graph-memory-depth` | عمق گسترش همسایه‌ها از nodeهای prompt در حافظه |
+| `--graph-memory-max-edges` | سقف یال‌های زیرگراف بازیابی‌شده برای کنترل هزینه و نویز |
+| `--graph-memory-min-score` | حداقل امتیاز node برای ورود به زیرگراف حافظه |
+| `--graph-memory-relation-weights` | وزن‌دهی relationها در retrieval، مثل `pmi=0.5,word_document=1.2` |
+| `--graph-memory-report-path` | ذخیره گزارش JSON از nodeها، relationها و coverage حافظه بازیابی‌شده |
 
 در مسیر طبقه‌بندی، اگر `--dataset` ندهید، یک آزمایش داخلی کوچک اجرا می‌شود
 تا نصب و مدل پایه را smoke test کنید. اگر دیتاست بدهید، CLI متن‌ها را
@@ -829,7 +868,7 @@ rakhshai_graph_nlp/
 ├── features/        # توکنایز، پیش‌پردازش و تبدیل به PyG
 ├── graphs/          # توابع ساخت گراف
 ├── models/          # مدل‌های GNN
-├── lm/              # PersianTokenizer، LMDataset، GraphCausalLM، LMTrainer و generate
+├── lm/              # PersianTokenizer، LMDataset، GraphCausalLM، Graph Memory، LMTrainer و generate
 ├── tasks/           # وظایف کاربردی
 ├── explain/         # ابزارهای تبیین اولیه
 ├── metrics.py       # معیارهای ارزیابی
