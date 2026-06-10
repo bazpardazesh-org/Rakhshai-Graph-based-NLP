@@ -20,12 +20,16 @@ pip install -e .[docs]
 - **Graph construction**: `build_cooccurrence_graph`, `build_text_graph`, `build_document_graph`, `build_dependency_graph`, `build_semantic_graph` with lexical relations, FarsNet-style exports and embedding similarity.
 - **End-to-end text classification**: `TextGraphClassifier` provides `fit`, `evaluate`, `predict`, `save` and `load` for a complete TextGCN-style Persian classification workflow.
 - **Modelling utilities**: PyTorch Geometric based `train_gcn_classifier`/`train_node_classifier` for GCN, GraphSAGE and GAT models plus `compute_social_embeddings`.
+- **Persian Graph-LM path**: `PersianTokenizer`, `build_graph_lm_graph`, `GraphCausalLM` and `LMTrainer` provide a causal LM baseline with optional graph encoding and graph-token fusion. The stable v1 architecture is documented in [Rakhshai Graph-LM v1 Architecture](graph_lm_v1.md).
 - **Training pipeline**: `rgnn-cli` can train on CSV, TSV or JSONL text datasets, create train/validation/test splits, report accuracy and macro-F1, and save model checkpoints.
 - **Application tasks**: `textrank_summarise`, `gat_summarise`, `recommend_similar`, `HateSpeechDetector` and others.
 
 The strongest supported path today is Persian text classification. Semantic
 graphs, hate-speech detection and GAT-based summarisation now have executable
 APIs that can be extended with stronger domain data.
+
+The Graph-LM path is experimental but now has a documented v1 architecture and
+two comparison modes: a no-graph baseline and a simple graph baseline.
 
 FarsNet support is available through `load_farsnet_relations` and
 `build_semantic_graph_from_farsnet`. The project does not bundle the FarsNet
