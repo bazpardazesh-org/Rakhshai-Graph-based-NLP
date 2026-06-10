@@ -110,6 +110,15 @@ class GraphLMGraph:
         data.edge_weight = edge_weight
         if self.edge_type is not None:
             data.edge_type = torch.tensor(self.edge_type, dtype=torch.long)
+        if self.node_types is not None:
+            node_type_to_id = {"token": 0}
+            for node_type in sorted(set(self.node_types)):
+                if node_type not in node_type_to_id:
+                    node_type_to_id[node_type] = len(node_type_to_id)
+            data.node_type_id = torch.tensor(
+                [node_type_to_id[node_type] for node_type in self.node_types],
+                dtype=torch.long,
+            )
         return data
 
     def token_node_ids(self, vocab_size: int) -> torch.Tensor:

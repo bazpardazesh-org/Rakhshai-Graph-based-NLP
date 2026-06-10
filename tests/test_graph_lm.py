@@ -427,6 +427,106 @@ def test_graph_encoders_are_edge_weight_aware():
     assert isinstance(sage.conv1, WeightedSAGEConv)
 
 
+def test_phase4_relation_embedding_uses_edge_type_signal():
+    torch.manual_seed(0)
+    encoder = RakhshaiGraphEncoder(
+        GraphLMConfig(
+            vocab_size=8,
+            d_model=8,
+            graph_encoder="graphsage",
+            graph_hidden_dim=8,
+            graph_edge_types=2,
+            graph_relation_mode="embedding",
+            dropout=0.0,
+        )
+    )
+    encoder.eval()
+    node_features = torch.eye(3, 8)
+    edge_index = torch.tensor([[0, 1, 2], [1, 2, 0]], dtype=torch.long)
+    from torch_geometric.data import Data
+
+    graph_a = Data(edge_index=edge_index, num_nodes=3)
+    graph_a.edge_weight = torch.ones(3)
+    graph_a.edge_type = torch.zeros(3, dtype=torch.long)
+    graph_b = Data(edge_index=edge_index, num_nodes=3)
+    graph_b.edge_weight = torch.ones(3)
+    graph_b.edge_type = torch.ones(3, dtype=torch.long)
+
+    out_a = encoder(node_features, graph_a)
+    out_b = encoder(node_features, graph_b)
+
+    assert not torch.allclose(out_a, out_b)
+
+
+def test_phase4_rgcn_handles_missing_edge_type():
+    from torch_geometric.data import Data
+
+    encoder = RakhshaiGraphEncoder(
+        GraphLMConfig(
+            vocab_size=8,
+            d_model=8,
+            graph_encoder="rgcn",
+            graph_hidden_dim=8,
+            graph_edge_types=3,
+            dropout=0.0,
+        )
+    )
+    graph = Data(
+        edge_index=torch.tensor([[0, 1, 2], [1, 2, 0]], dtype=torch.long),
+        num_nodes=3,
+    )
+    graph.edge_weight = torch.ones(3)
+
+    output = encoder(torch.eye(3, 8), graph)
+
+    assert output.shape == (3, 8)
+
+
+def test_phase4_node_type_metadata_survives_checkpoint(tmp_path):
+    texts = [
+        "کتاب‌ها در کتابخانه ماندند",
+        "دانشجویان کتاب تازه خواندند",
+    ]
+    tokenizer = PersianTokenizer(morph_splitting=True).fit(texts)
+    graph = build_graph_lm_graph(
+        texts,
+        tokenizer,
+        graph_relations=["cooccurrence", "word_document"],
+    )
+    data = graph.to_pyg_data()
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=8,
+            d_model=16,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=32,
+            graph_encoder="graphsage",
+            graph_hidden_dim=16,
+            graph_edge_types=len(graph.graph_config["edge_types"]),
+            graph_relation_mode="embedding",
+            graph_pooling="mean",
+            graph_node_importance=True,
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+
+    model.save_pretrained(
+        tmp_path,
+        tokenizer=tokenizer,
+        graph_config=graph.graph_config,
+        graph_data=data,
+        token_node_ids=graph.token_node_ids(tokenizer.vocab_size),
+    )
+    loaded_graph, _ = GraphCausalLM.load_graph_artifacts(tmp_path)
+
+    assert hasattr(data, "node_type_id")
+    assert loaded_graph is not None
+    assert hasattr(loaded_graph, "node_type_id")
+    assert torch.equal(loaded_graph.node_type_id, data.node_type_id)
+
+
 def test_graph_lm_context_fusion_all_layers_forward_shape():
     texts = ["مجلس قانون را تصویب کرد", "دولت لایحه جدید آورد"]
     tokenizer = PersianTokenizer().fit(texts)
@@ -574,3 +674,62 @@ def test_lm_cli_train_accepts_phase3_graph_relations(tmp_path):
     assert "topic_document" in graph_config["edge_types"]
     assert graph_config["relation_weights"]["stem"] == 0.8
     assert model_config["graph_edge_types"] == len(graph_config["edge_types"])
+
+
+def test_lm_cli_train_accepts_phase4_graph_reasoning_options(tmp_path):
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text(
+        "کتاب‌ها در کتابخانه ماندند\n"
+        "دانشجویان کتاب تازه خواندند\n"
+        "دانشگاه درباره کتابخانه گزارش داد\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "phase4-graph-lm"
+
+    result = main(
+        [
+            "lm-train",
+            "--corpus",
+            str(corpus),
+            "--output-dir",
+            str(output_dir),
+            "--graph-encoder",
+            "graphsage",
+            "--graph-relation-mode",
+            "embedding",
+            "--graph-pooling",
+            "attention",
+            "--graph-node-importance",
+            "--graph-relations",
+            "cooccurrence",
+            "stem",
+            "word_document",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "1",
+            "--block-size",
+            "8",
+            "--d-model",
+            "16",
+            "--n-heads",
+            "2",
+            "--n-layers",
+            "1",
+            "--dim-feedforward",
+            "32",
+            "--graph-hidden-dim",
+            "16",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    assert result == 0
+    model_config = json.loads((output_dir / "config.json").read_text(encoding="utf-8"))
+    graph_data, _ = GraphCausalLM.load_graph_artifacts(output_dir)
+    assert model_config["graph_relation_mode"] == "embedding"
+    assert model_config["graph_pooling"] == "attention"
+    assert model_config["graph_node_importance"] is True
+    assert graph_data is not None
+    assert hasattr(graph_data, "node_type_id")

@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch_geometric.data import Data
-from torch_geometric.nn import GATConv, GCNConv, MessagePassing
+from torch_geometric.nn import GATConv, GCNConv, MessagePassing, RGCNConv
 
 from .tokenizer import PersianTokenizer
 
@@ -28,6 +28,9 @@ class GraphLMConfig:
     graph_encoder: str = "gat"
     graph_hidden_dim: int = 128
     graph_heads: int = 4
+    graph_relation_mode: str = "bias"
+    graph_pooling: str = "none"
+    graph_node_importance: bool = False
     fusion: str = "gated"
     fusion_layers: str = "input"
     graph_edge_types: int = 1
@@ -72,25 +75,87 @@ class WeightedSAGEConv(MessagePassing):
         return x_j * edge_weight.unsqueeze(-1)
 
 
+class RelationWeightedSAGEConv(MessagePassing):
+    """GraphSAGE aggregation with relation-aware edge attributes."""
+
+    def __init__(self, in_channels: int, out_channels: int, edge_dim: int):
+        super().__init__(aggr="add")
+        self.lin_root = nn.Linear(in_channels, out_channels)
+        self.lin_neigh = nn.Linear(in_channels, out_channels)
+        self.edge_gate = nn.Linear(edge_dim, in_channels)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_attr: torch.Tensor | None = None,
+        edge_weight: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if edge_weight is None:
+            edge_weight = x.new_ones((edge_index.size(1),))
+        edge_weight = edge_weight.to(dtype=x.dtype, device=x.device)
+        out = self.propagate(
+            edge_index,
+            x=x,
+            edge_attr=edge_attr,
+            edge_weight=edge_weight,
+        )
+        dst = edge_index[1]
+        denom = x.new_zeros((x.size(0),))
+        denom.scatter_add_(0, dst, edge_weight.abs())
+        out = out / denom.clamp_min(1e-12).unsqueeze(-1)
+        return self.lin_root(x) + self.lin_neigh(out)
+
+    def message(
+        self,
+        x_j: torch.Tensor,
+        edge_attr: torch.Tensor | None,
+        edge_weight: torch.Tensor,
+    ) -> torch.Tensor:
+        if edge_attr is not None:
+            x_j = x_j * torch.sigmoid(self.edge_gate(edge_attr))
+        return x_j * edge_weight.unsqueeze(-1)
+
+
 class RakhshaiGraphEncoder(nn.Module):
     """GNN encoder that creates graph-aware token embeddings."""
 
     def __init__(self, config: GraphLMConfig):
         super().__init__()
         encoder = config.graph_encoder.lower()
+        relation_mode = config.graph_relation_mode.lower()
+        if relation_mode not in {"bias", "embedding", "rgcn"}:
+            raise ValueError("graph_relation_mode must be one of: bias, embedding, rgcn")
+        if relation_mode == "rgcn":
+            encoder = "rgcn"
+        if encoder == "rgcn":
+            relation_mode = "rgcn"
         if encoder == "gcn":
             self.conv1 = GCNConv(config.d_model, config.graph_hidden_dim)
             self.conv2 = GCNConv(config.graph_hidden_dim, config.d_model)
         elif encoder == "graphsage":
-            self.conv1 = WeightedSAGEConv(config.d_model, config.graph_hidden_dim)
-            self.conv2 = WeightedSAGEConv(config.graph_hidden_dim, config.d_model)
+            if relation_mode == "embedding":
+                self.conv1 = RelationWeightedSAGEConv(
+                    config.d_model,
+                    config.graph_hidden_dim,
+                    config.d_model,
+                )
+                self.conv2 = RelationWeightedSAGEConv(
+                    config.graph_hidden_dim,
+                    config.d_model,
+                    config.graph_hidden_dim,
+                )
+            else:
+                self.conv1 = WeightedSAGEConv(config.d_model, config.graph_hidden_dim)
+                self.conv2 = WeightedSAGEConv(config.graph_hidden_dim, config.d_model)
         elif encoder == "gat":
+            edge_dim = config.d_model if relation_mode == "embedding" else 1
             self.conv1 = GATConv(
                 config.d_model,
                 config.graph_hidden_dim,
                 heads=config.graph_heads,
                 dropout=config.dropout,
-                edge_dim=1,
+                edge_dim=edge_dim,
             )
             self.conv2 = GATConv(
                 config.graph_hidden_dim * config.graph_heads,
@@ -98,50 +163,156 @@ class RakhshaiGraphEncoder(nn.Module):
                 heads=1,
                 concat=False,
                 dropout=config.dropout,
-                edge_dim=1,
+                edge_dim=config.graph_hidden_dim if relation_mode == "embedding" else 1,
+            )
+        elif encoder == "rgcn":
+            self.conv1 = RGCNConv(
+                config.d_model,
+                config.graph_hidden_dim,
+                num_relations=max(1, config.graph_edge_types),
+            )
+            self.conv2 = RGCNConv(
+                config.graph_hidden_dim,
+                config.d_model,
+                num_relations=max(1, config.graph_edge_types),
             )
         else:
-            raise ValueError("graph_encoder must be one of: gcn, graphsage, gat")
+            raise ValueError("graph_encoder must be one of: gcn, graphsage, gat, rgcn")
         self.encoder = encoder
+        self.relation_mode = relation_mode
         self.dropout = nn.Dropout(config.dropout)
         self.edge_type_bias = (
             nn.Embedding(config.graph_edge_types, 1)
             if config.graph_edge_types > 1
             else None
         )
+        self.edge_type_embedding = (
+            nn.Embedding(config.graph_edge_types, config.d_model)
+            if relation_mode == "embedding" and config.graph_edge_types > 1
+            else None
+        )
+        self.edge_type_hidden_embedding = (
+            nn.Embedding(config.graph_edge_types, config.graph_hidden_dim)
+            if relation_mode == "embedding" and config.graph_edge_types > 1
+            else None
+        )
+        self.node_importance = (
+            nn.Linear(config.d_model, 1) if config.graph_node_importance else None
+        )
+        if config.graph_pooling not in {"none", "mean", "attention"}:
+            raise ValueError("graph_pooling must be one of: none, mean, attention")
+        self.graph_pooling = config.graph_pooling
+        self.pool_score = (
+            nn.Linear(config.d_model, 1) if config.graph_pooling == "attention" else None
+        )
+
+    def _edge_type(self, graph_data: Data, device: torch.device) -> torch.Tensor:
+        edge_type = getattr(graph_data, "edge_type", None)
+        if edge_type is None:
+            return torch.zeros(
+                (graph_data.edge_index.size(1),),
+                dtype=torch.long,
+                device=device,
+            )
+        max_type = max(0, getattr(self.conv1, "num_relations", 1) - 1)
+        if self.edge_type_bias is not None:
+            max_type = self.edge_type_bias.num_embeddings - 1
+        elif self.edge_type_embedding is not None:
+            max_type = self.edge_type_embedding.num_embeddings - 1
+        return edge_type.to(device).long().clamp(0, max_type)
+
+    def _relation_edge_attr(
+        self,
+        edge_type: torch.Tensor,
+        edge_weight: torch.Tensor | None,
+        *,
+        hidden: bool = False,
+    ) -> torch.Tensor | None:
+        embedding = self.edge_type_hidden_embedding if hidden else self.edge_type_embedding
+        if self.relation_mode == "embedding" and embedding is not None:
+            edge_attr = embedding(edge_type)
+            if edge_weight is not None:
+                edge_attr = edge_attr * edge_weight.unsqueeze(-1)
+            return edge_attr
+        if edge_weight is None:
+            return None
+        return edge_weight.unsqueeze(-1)
 
     def forward(self, node_features: torch.Tensor, graph_data: Data) -> torch.Tensor:
         edge_index = graph_data.edge_index.to(node_features.device)
         edge_weight = getattr(graph_data, "edge_weight", None)
         if edge_weight is not None:
-            edge_weight = edge_weight.to(node_features.device)
-        edge_type = getattr(graph_data, "edge_type", None)
+            edge_weight = edge_weight.to(node_features.device).to(dtype=node_features.dtype)
+        edge_type = self._edge_type(graph_data, node_features.device)
         if (
-            self.edge_type_bias is not None
+            self.relation_mode == "bias"
+            and self.edge_type_bias is not None
             and edge_weight is not None
-            and edge_type is not None
         ):
-            edge_type = edge_type.to(node_features.device).clamp(
-                0,
-                self.edge_type_bias.num_embeddings - 1,
-            )
             edge_weight = edge_weight * torch.sigmoid(self.edge_type_bias(edge_type).squeeze(-1))
 
         if self.encoder == "gcn":
             x = self.conv1(node_features, edge_index, edge_weight)
         elif self.encoder == "gat":
-            edge_attr = None if edge_weight is None else edge_weight.unsqueeze(-1)
+            edge_attr = self._relation_edge_attr(edge_type, edge_weight)
             x = self.conv1(node_features, edge_index, edge_attr=edge_attr)
+        elif self.encoder == "rgcn":
+            x = self.conv1(node_features, edge_index, edge_type)
+            if edge_weight is not None:
+                x = x * edge_weight.mean().clamp_min(1e-6)
+        elif self.relation_mode == "embedding":
+            edge_attr = self._relation_edge_attr(edge_type, edge_weight)
+            x = self.conv1(node_features, edge_index, edge_attr, edge_weight)
         else:
             x = self.conv1(node_features, edge_index, edge_weight)
         x = F.relu(x)
         x = self.dropout(x)
         if self.encoder == "gcn":
-            return self.conv2(x, edge_index, edge_weight)
-        if self.encoder == "gat":
-            edge_attr = None if edge_weight is None else edge_weight.unsqueeze(-1)
-            return self.conv2(x, edge_index, edge_attr=edge_attr)
-        return self.conv2(x, edge_index, edge_weight)
+            node_embeddings = self.conv2(x, edge_index, edge_weight)
+        elif self.encoder == "gat":
+            edge_attr = self._relation_edge_attr(edge_type, edge_weight, hidden=True)
+            node_embeddings = self.conv2(x, edge_index, edge_attr=edge_attr)
+        elif self.encoder == "rgcn":
+            node_embeddings = self.conv2(x, edge_index, edge_type)
+            if edge_weight is not None:
+                node_embeddings = node_embeddings * edge_weight.mean().clamp_min(1e-6)
+        elif self.relation_mode == "embedding":
+            edge_attr = self._relation_edge_attr(edge_type, edge_weight, hidden=True)
+            node_embeddings = self.conv2(x, edge_index, edge_attr, edge_weight)
+        else:
+            node_embeddings = self.conv2(x, edge_index, edge_weight)
+        if self.graph_pooling != "none":
+            pooled = self.pool(node_embeddings, graph_data)
+            node_embeddings = node_embeddings + pooled.unsqueeze(0)
+        return node_embeddings
+
+    def importance_scores(self, node_embeddings: torch.Tensor) -> torch.Tensor:
+        if self.node_importance is None:
+            return torch.empty((0,), device=node_embeddings.device)
+        return torch.softmax(self.node_importance(node_embeddings).squeeze(-1), dim=0)
+
+    def pool(self, node_embeddings: torch.Tensor, graph_data: Data) -> torch.Tensor:
+        node_type_id = getattr(graph_data, "node_type_id", None)
+        if node_type_id is not None:
+            node_type_id = node_type_id.to(node_embeddings.device)
+            mask = node_type_id != 0
+            if not mask.any():
+                mask = torch.ones(
+                    node_embeddings.size(0),
+                    dtype=torch.bool,
+                    device=node_embeddings.device,
+                )
+        else:
+            mask = torch.ones(
+                node_embeddings.size(0),
+                dtype=torch.bool,
+                device=node_embeddings.device,
+            )
+        selected = node_embeddings[mask]
+        if self.graph_pooling == "attention" and self.pool_score is not None:
+            weights = torch.softmax(self.pool_score(selected).squeeze(-1), dim=0)
+            return (selected * weights.unsqueeze(-1)).sum(dim=0)
+        return selected.mean(dim=0)
 
 
 class GraphTokenFusion(nn.Module):
@@ -431,6 +602,9 @@ class GraphCausalLM(nn.Module):
             edge_type = getattr(graph_data, "edge_type", None)
             if edge_type is not None:
                 payload["edge_type"] = edge_type.detach().cpu()
+            node_type_id = getattr(graph_data, "node_type_id", None)
+            if node_type_id is not None:
+                payload["node_type_id"] = node_type_id.detach().cpu()
             torch.save(payload, graph_artifact)
         elif graph_artifact.exists():
             graph_artifact.unlink()
@@ -473,6 +647,9 @@ class GraphCausalLM(nn.Module):
         edge_type = state.get("edge_type")
         if edge_type is not None:
             data.edge_type = edge_type.long()
+        node_type_id = state.get("node_type_id")
+        if node_type_id is not None:
+            data.node_type_id = node_type_id.long()
         return data, state["token_node_ids"].long()
 
 

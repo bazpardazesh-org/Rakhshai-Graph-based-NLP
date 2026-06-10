@@ -228,6 +228,9 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         semantic_similarity_threshold=args.semantic_similarity_threshold,
         semantic_top_k=args.semantic_top_k,
         topic_top_k=args.topic_top_k,
+        graph_relation_mode=args.graph_relation_mode,
+        graph_pooling=args.graph_pooling,
+        graph_node_importance=args.graph_node_importance,
         dynamic_graph=args.dynamic_graph,
         tokenizer_type=args.tokenizer_type,
         tokenizer_half_space=args.tokenizer_half_space,
@@ -251,6 +254,9 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
             graph_encoder=args.graph_encoder,
             graph_hidden_dim=args.graph_hidden_dim,
             graph_heads=args.graph_heads,
+            graph_relation_mode=args.graph_relation_mode,
+            graph_pooling=args.graph_pooling,
+            graph_node_importance=args.graph_node_importance,
             fusion=args.fusion,
             fusion_layers=args.fusion_layers,
         ),
@@ -442,7 +448,7 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     train.add_argument("--output-dir", default="runs/graph-lm")
     train.add_argument(
         "--graph-encoder",
-        choices=["none", "gcn", "graphsage", "gat"],
+        choices=["none", "gcn", "graphsage", "gat", "rgcn"],
         default="gat",
     )
     train.add_argument("--fusion", choices=["gated", "context_gated", "add"], default="gated")
@@ -454,6 +460,23 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     train.add_argument("--dropout", type=float, default=0.1)
     train.add_argument("--graph-hidden-dim", type=int, default=128)
     train.add_argument("--graph-heads", type=int, default=4)
+    train.add_argument(
+        "--graph-relation-mode",
+        choices=["bias", "embedding", "rgcn"],
+        default="bias",
+        help="How the graph encoder consumes edge_type relation ids",
+    )
+    train.add_argument(
+        "--graph-pooling",
+        choices=["none", "mean", "attention"],
+        default="none",
+        help="Optional subgraph/global pooling added to graph node embeddings",
+    )
+    train.add_argument(
+        "--graph-node-importance",
+        action="store_true",
+        help="Enable node-importance scoring inside the graph encoder",
+    )
     train.add_argument("--epochs", type=int, default=3)
     train.add_argument("--batch-size", type=int, default=8)
     train.add_argument("--learning-rate", type=float, default=3e-4)

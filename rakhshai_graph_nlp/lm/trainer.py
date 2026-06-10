@@ -41,6 +41,9 @@ class LMTrainingConfig:
     semantic_similarity_threshold: float = 0.6
     semantic_top_k: int | None = 4
     topic_top_k: int = 8
+    graph_relation_mode: str = "bias"
+    graph_pooling: str = "none"
+    graph_node_importance: bool = False
     dynamic_graph: bool = False
     tokenizer_type: str = "word"
     tokenizer_half_space: str = "preserve"
@@ -338,8 +341,13 @@ def train_graph_lm(
     cfg.vocab_size = tokenizer.vocab_size
     cfg.max_seq_len = training_config.block_size
     cfg.graph_encoder = graph_encoder
+    if training_config.graph_relation_mode == "rgcn" and graph_encoder != "none":
+        cfg.graph_encoder = "rgcn"
     cfg.fusion = fusion
     cfg.pad_token_id = tokenizer.pad_id
+    cfg.graph_relation_mode = training_config.graph_relation_mode
+    cfg.graph_pooling = training_config.graph_pooling
+    cfg.graph_node_importance = training_config.graph_node_importance
     cfg.graph_edge_types = (
         len(graph.graph_config.get("edge_types", {"cooccurrence": 0}))
         if graph is not None

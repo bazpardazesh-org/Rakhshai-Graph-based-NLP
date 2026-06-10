@@ -2,6 +2,8 @@ site_name: Rakhshai GNN
 nav:
   - Home: index.md
   - Persian Tokenizer: persian_tokenizer.md
+  - Multi-Relation Persian Graph: multi_relation_persian_graph.md
+  - Graph Reasoning Core: graph_reasoning_core.md
 plugins:
   - search
   - mkdocstrings:
