@@ -1,0 +1,657 @@
+{
+  "training_config": {
+    "output_dir": "runs/lowdata-test-20260611/AFTER-exp-none-lowdata-s1",
+    "epochs": 20,
+    "batch_size": 8,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.01,
+    "validation_ratio": 0.1,
+    "block_size": 128,
+    "stride": null,
+    "min_freq": 1,
+    "max_vocab_size": null,
+    "graph_window_size": 4,
+    "graph_min_count": 1,
+    "graph_weighting": "distance",
+    "graph_min_edge_weight": 0.0,
+    "graph_top_k": null,
+    "graph_directed": false,
+    "graph_scope": "document",
+    "context_node_type": "none",
+    "graph_relations": null,
+    "relation_weights": null,
+    "semantic_similarity_threshold": 0.6,
+    "semantic_top_k": 4,
+    "topic_top_k": 8,
+    "graph_relation_mode": "bias",
+    "graph_pooling": "none",
+    "graph_node_importance": false,
+    "fusion_levels": "token",
+    "graph_fusion_scale": 1.0,
+    "graph_fusion_dropout": 0.0,
+    "task_losses": "next_token,masked_token,edge,neighbor,node_relation,graph_text,sentence_graph",
+    "next_token_weight": 1.0,
+    "masked_token_weight": 0.25,
+    "edge_prediction_weight": 0.1,
+    "neighbor_prediction_weight": 0.1,
+    "node_relation_weight": 0.1,
+    "graph_text_alignment_weight": 0.1,
+    "sentence_graph_alignment_weight": 0.1,
+    "mask_probability": 0.15,
+    "negative_samples": 1,
+    "text_augmentation": true,
+    "augmentation_ratio": 0.5,
+    "token_dropout": 0.05,
+    "punctuation_dropout": 0.5,
+    "node_dropout": 0.05,
+    "edge_dropout": 0.1,
+    "subgraph_sampling_ratio": 0.9,
+    "contrastive_weight": 0.05,
+    "curriculum_learning": true,
+    "early_stopping_patience": 3,
+    "early_stopping_min_delta": 0.0001,
+    "max_grad_norm": 1.0,
+    "dynamic_graph": false,
+    "graph_build_batch_size": null,
+    "graph_cache_dir": null,
+    "reuse_graph_cache": true,
+    "dataloader_num_workers": 0,
+    "dataloader_pin_memory": false,
+    "amp": false,
+    "resume_from": null,
+    "tokenizer_type": "word",
+    "tokenizer_half_space": "preserve",
+    "tokenizer_morph_splitting": false,
+    "tokenizer_compound_verb_mode": "none",
+    "tokenizer_bpe_merges": 200,
+    "device": "cpu",
+    "seed": 1
+  },
+  "model_config": {
+    "vocab_size": 392,
+    "max_seq_len": 128,
+    "d_model": 128,
+    "n_heads": 4,
+    "n_layers": 2,
+    "dim_feedforward": 512,
+    "dropout": 0.1,
+    "graph_encoder": "none",
+    "graph_hidden_dim": 128,
+    "graph_heads": 4,
+    "graph_relation_mode": "bias",
+    "graph_pooling": "none",
+    "graph_node_importance": false,
+    "fusion": "gated",
+    "fusion_layers": "input",
+    "fusion_levels": "token",
+    "graph_fusion_scale": 1.0,
+    "graph_fusion_dropout": 0.0,
+    "graph_edge_types": 1,
+    "pad_token_id": 0
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 7.5052170753479,
+      "validation_loss": 7.128474235534668,
+      "validation_next_token_loss": 5.789764404296875,
+      "generalization_gap": -0.3767428398132324,
+      "perplexity": 326.93599058733327,
+      "train_task_losses": {
+        "next_token": 6.004456043243408,
+        "masked_token": 6.003044605255127
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.789764404296875,
+        "masked_token": 5.35483980178833
+      }
+    },
+    {
+      "epoch": 2,
+      "train_loss": 7.396649599075317,
+      "validation_loss": 7.062498092651367,
+      "validation_next_token_loss": 5.740743160247803,
+      "generalization_gap": -0.3341515064239502,
+      "perplexity": 311.29566760586226,
+      "train_task_losses": {
+        "next_token": 5.915493011474609,
+        "masked_token": 5.924626588821411
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.740743160247803,
+        "masked_token": 5.2870192527771
+      }
+    },
+    {
+      "epoch": 3,
+      "train_loss": 7.29776668548584,
+      "validation_loss": 7.092645645141602,
+      "validation_next_token_loss": 5.689023017883301,
+      "generalization_gap": -0.20512104034423828,
+      "perplexity": 295.60467903304715,
+      "train_task_losses": {
+        "next_token": 5.827721834182739,
+        "masked_token": 5.880178928375244
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.689023017883301,
+        "masked_token": 5.614489555358887
+      }
+    },
+    {
+      "epoch": 4,
+      "train_loss": 7.199108600616455,
+      "validation_loss": 6.971884250640869,
+      "validation_next_token_loss": 5.63533353805542,
+      "generalization_gap": -0.22722434997558594,
+      "perplexity": 280.1523431967613,
+      "train_task_losses": {
+        "next_token": 5.742283821105957,
+        "masked_token": 5.827298879623413
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.63533353805542,
+        "masked_token": 5.346203327178955
+      }
+    },
+    {
+      "epoch": 5,
+      "train_loss": 7.1006786823272705,
+      "validation_loss": 6.902511119842529,
+      "validation_next_token_loss": 5.578232288360596,
+      "generalization_gap": -0.1981675624847412,
+      "perplexity": 264.60344952794446,
+      "train_task_losses": {
+        "next_token": 5.652112722396851,
+        "masked_token": 5.7942633628845215
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.578232288360596,
+        "masked_token": 5.297114849090576
+      }
+    },
+    {
+      "epoch": 6,
+      "train_loss": 6.980053901672363,
+      "validation_loss": 6.885347843170166,
+      "validation_next_token_loss": 5.51979398727417,
+      "generalization_gap": -0.09470605850219727,
+      "perplexity": 249.58361449226658,
+      "train_task_losses": {
+        "next_token": 5.572625160217285,
+        "masked_token": 5.629715442657471
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.51979398727417,
+        "masked_token": 5.462215423583984
+      }
+    },
+    {
+      "epoch": 7,
+      "train_loss": 6.935037612915039,
+      "validation_loss": 6.840583801269531,
+      "validation_next_token_loss": 5.461932182312012,
+      "generalization_gap": -0.09445381164550781,
+      "perplexity": 235.5521145809337,
+      "train_task_losses": {
+        "next_token": 5.507847309112549,
+        "masked_token": 5.70876145362854
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.461932182312012,
+        "masked_token": 5.514606475830078
+      }
+    },
+    {
+      "epoch": 8,
+      "train_loss": 6.831254482269287,
+      "validation_loss": 6.719479084014893,
+      "validation_next_token_loss": 5.4077606201171875,
+      "generalization_gap": -0.11177539825439453,
+      "perplexity": 223.13135191993172,
+      "train_task_losses": {
+        "next_token": 5.4472270011901855,
+        "masked_token": 5.536109685897827
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.4077606201171875,
+        "masked_token": 5.2468743324279785
+      }
+    },
+    {
+      "epoch": 9,
+      "train_loss": 6.788996934890747,
+      "validation_loss": 6.685000896453857,
+      "validation_next_token_loss": 5.3567352294921875,
+      "generalization_gap": -0.10399603843688965,
+      "perplexity": 212.03158077387297,
+      "train_task_losses": {
+        "next_token": 5.394211769104004,
+        "masked_token": 5.579140901565552
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.3567352294921875,
+        "masked_token": 5.3130621910095215
+      }
+    },
+    {
+      "epoch": 10,
+      "train_loss": 6.704488754272461,
+      "validation_loss": 6.6085686683654785,
+      "validation_next_token_loss": 5.309903621673584,
+      "generalization_gap": -0.09592008590698242,
+      "perplexity": 202.33072715154898,
+      "train_task_losses": {
+        "next_token": 5.336399078369141,
+        "masked_token": 5.472358465194702
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.309903621673584,
+        "masked_token": 5.194660186767578
+      }
+    },
+    {
+      "epoch": 11,
+      "train_loss": 6.658157587051392,
+      "validation_loss": 6.520059108734131,
+      "validation_next_token_loss": 5.267915725708008,
+      "generalization_gap": -0.13809847831726074,
+      "perplexity": 194.01116825052412,
+      "train_task_losses": {
+        "next_token": 5.287219762802124,
+        "masked_token": 5.483750820159912
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.267915725708008,
+        "masked_token": 5.00857400894165
+      }
+    },
+    {
+      "epoch": 12,
+      "train_loss": 6.590662002563477,
+      "validation_loss": 6.508620262145996,
+      "validation_next_token_loss": 5.231106758117676,
+      "generalization_gap": -0.08204174041748047,
+      "perplexity": 186.99965241652072,
+      "train_task_losses": {
+        "next_token": 5.232259750366211,
+        "masked_token": 5.4336090087890625
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.231106758117676,
+        "masked_token": 5.110054969787598
+      }
+    },
+    {
+      "epoch": 13,
+      "train_loss": 6.5179173946380615,
+      "validation_loss": 6.542730808258057,
+      "validation_next_token_loss": 5.199701309204102,
+      "generalization_gap": 0.024813413619995117,
+      "perplexity": 181.21810561035568,
+      "train_task_losses": {
+        "next_token": 5.181118011474609,
+        "masked_token": 5.347197532653809
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.199701309204102,
+        "masked_token": 5.37211799621582
+      }
+    },
+    {
+      "epoch": 14,
+      "train_loss": 6.461182117462158,
+      "validation_loss": 6.4650397300720215,
+      "validation_next_token_loss": 5.17339563369751,
+      "generalization_gap": 0.0038576126098632812,
+      "perplexity": 176.51319516092525,
+      "train_task_losses": {
+        "next_token": 5.118066787719727,
+        "masked_token": 5.372461318969727
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.17339563369751,
+        "masked_token": 5.166576862335205
+      }
+    },
+    {
+      "epoch": 15,
+      "train_loss": 6.377052545547485,
+      "validation_loss": 6.469259738922119,
+      "validation_next_token_loss": 5.152320384979248,
+      "generalization_gap": 0.09220719337463379,
+      "perplexity": 172.83206231783245,
+      "train_task_losses": {
+        "next_token": 5.0618062019348145,
+        "masked_token": 5.260984897613525
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.152320384979248,
+        "masked_token": 5.267756938934326
+      }
+    },
+    {
+      "epoch": 16,
+      "train_loss": 6.339836597442627,
+      "validation_loss": 6.378993988037109,
+      "validation_next_token_loss": 5.134673595428467,
+      "generalization_gap": 0.03915739059448242,
+      "perplexity": 169.80888443181874,
+      "train_task_losses": {
+        "next_token": 4.999353885650635,
+        "masked_token": 5.361931562423706
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.134673595428467,
+        "masked_token": 4.977280616760254
+      }
+    },
+    {
+      "epoch": 17,
+      "train_loss": 6.2708117961883545,
+      "validation_loss": 6.245119094848633,
+      "validation_next_token_loss": 5.120011329650879,
+      "generalization_gap": -0.02569270133972168,
+      "perplexity": 167.33726548316127,
+      "train_task_losses": {
+        "next_token": 4.941844463348389,
+        "masked_token": 5.315869092941284
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.120011329650879,
+        "masked_token": 4.500432014465332
+      }
+    },
+    {
+      "epoch": 18,
+      "train_loss": 6.2168800830841064,
+      "validation_loss": 6.365872383117676,
+      "validation_next_token_loss": 5.105536937713623,
+      "generalization_gap": 0.14899230003356934,
+      "perplexity": 164.9326052966769,
+      "train_task_losses": {
+        "next_token": 4.8868348598480225,
+        "masked_token": 5.320180892944336
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.105536937713623,
+        "masked_token": 5.041341781616211
+      }
+    },
+    {
+      "epoch": 19,
+      "train_loss": 6.1226067543029785,
+      "validation_loss": 6.338956356048584,
+      "validation_next_token_loss": 5.088103771209717,
+      "generalization_gap": 0.21634960174560547,
+      "perplexity": 162.08222548864913,
+      "train_task_losses": {
+        "next_token": 4.829671621322632,
+        "masked_token": 5.171740531921387
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.088103771209717,
+        "masked_token": 5.0034098625183105
+      }
+    },
+    {
+      "epoch": 20,
+      "train_loss": 6.101315975189209,
+      "validation_loss": 6.3023905754089355,
+      "validation_next_token_loss": 5.067107677459717,
+      "generalization_gap": 0.20107460021972656,
+      "perplexity": 158.71460899583917,
+      "train_task_losses": {
+        "next_token": 4.77428936958313,
+        "masked_token": 5.308106184005737
+      },
+      "task_status": {
+        "next_token": "active",
+        "masked_token": "active",
+        "edge": "skipped",
+        "neighbor": "skipped",
+        "node_relation": "skipped",
+        "graph_text": "skipped",
+        "sentence_graph": "skipped",
+        "contrastive": "skipped"
+      },
+      "validation_task_losses": {
+        "next_token": 5.067107677459717,
+        "masked_token": 4.941132068634033
+      }
+    }
+  ],
+  "best_validation_loss": 6.245119094848633,
+  "best_next_token_loss": 5.120011329650879,
+  "best_perplexity": 167.33726548316127,
+  "best_epoch": 17,
+  "epochs_ran": 20,
+  "resumed_from": null,
+  "stopped_early": true,
+  "early_stopping_reason": "validation_loss did not improve for 3 epoch(s)",
+  "checkpoint_dir": "runs/lowdata-test-20260611/AFTER-exp-none-lowdata-s1",
+  "graph_scalability": {
+    "cache_enabled": false,
+    "cache_hit": false,
+    "build_seconds": 0.0,
+    "build_batch_size": null,
+    "graph_build_batches": 0,
+    "num_nodes": 0,
+    "num_edges": 0
+  },
+  "tokenizer_stats": {
+    "tokenizer_type": "word",
+    "vocab_size": 392,
+    "keep_half_space": true,
+    "morph_splitting": false,
+    "compound_verb_mode": "none",
+    "bpe_merges": 0,
+    "train_token_count": 796,
+    "validation_token_count": 91,
+    "validation_unk_count": 28,
+    "validation_unk_rate": 0.3076923076923077,
+    "avg_validation_tokens_per_text": 13.0
+  },
+  "low_data_training": {
+    "text_augmentation": true,
+    "augmentation_ratio": 0.5,
+    "augmented_train_examples": 88,
+    "original_train_examples": 64,
+    "node_dropout": 0.05,
+    "edge_dropout": 0.1,
+    "subgraph_sampling_ratio": 0.9,
+    "contrastive_weight": 0.05,
+    "curriculum_learning": true,
+    "early_stopping_patience": 3
+  }
+}

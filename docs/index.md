@@ -28,6 +28,17 @@ The strongest supported path today is Persian text classification. Semantic
 graphs, hate-speech detection and GAT-based summarisation now have executable
 APIs that can be extended with stronger domain data.
 
+## Design philosophy and evaluation scope
+
+Rakhshai develops and evaluates a native, self-contained Persian language-model
+architecture. For now the project intentionally does not use external
+pretrained language models, knowledge distillation, pretrained embeddings, or
+LLM-generated synthetic data, so the capabilities and limits of the Graph-LM
+architecture itself can be measured transparently. The small corpora bundled
+with the repository are for smoke tests and implementation-health checks only;
+a fair evaluation of Graph-LM requires training and testing on substantially
+larger Persian corpora.
+
 The Graph-LM path is experimental but now has a documented V2 architecture,
 a multi-relation default graph, a Low-Data Training Engine, graph memory for
 generation, and two control modes: a no-graph baseline and an explicit v1 simple

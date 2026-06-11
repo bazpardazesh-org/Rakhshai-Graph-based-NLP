@@ -110,6 +110,102 @@ def test_lm_dataset_creates_next_token_targets():
     assert torch.equal(input_ids[1:], target_ids[:-1])
 
 
+def test_untrained_graph_lm_starts_near_uniform_loss():
+    texts = ["مجلس قانون را تصویب کرد", "دولت لایحه جدید آورد"]
+    tokenizer = PersianTokenizer().fit(texts)
+    torch.manual_seed(0)
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=6,
+            d_model=16,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=32,
+            graph_encoder="none",
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+    model.eval()
+    batch = torch.tensor([tokenizer.encode(texts[0])[:6]], dtype=torch.long)
+
+    output = model(batch, labels=batch)
+
+    uniform_loss = torch.log(torch.tensor(float(tokenizer.vocab_size)))
+    assert float(output["loss"]) < float(uniform_loss) + 1.0
+    assert torch.equal(
+        model.token_embedding.weight[tokenizer.pad_id],
+        torch.zeros(model.config.d_model),
+    )
+
+
+def test_zero_init_gating_matches_baseline_at_init():
+    texts = ["مجلس قانون را تصویب کرد", "دولت لایحه جدید آورد"]
+    tokenizer = PersianTokenizer().fit(texts)
+    graph = build_graph_lm_graph(texts, tokenizer, window_size=2)
+    torch.manual_seed(0)
+    model = GraphCausalLM(
+        GraphLMConfig(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_len=6,
+            d_model=16,
+            n_heads=2,
+            n_layers=1,
+            dim_feedforward=32,
+            dropout=0.0,
+            graph_encoder="gcn",
+            graph_hidden_dim=16,
+            fusion="gated",
+            fusion_levels="all",
+            pad_token_id=tokenizer.pad_id,
+        )
+    )
+    model.eval()
+    batch = torch.tensor([tokenizer.encode(texts[0])[:6]], dtype=torch.long)
+
+    with_graph = model(
+        batch,
+        graph_data=graph.to_pyg_data(),
+        token_node_ids=graph.token_node_ids(tokenizer.vocab_size),
+    )
+    without_graph = model(batch)
+
+    # alpha starts at zero, so the untrained graph model must be exactly the
+    # no-graph baseline; graph information only enters once alpha is trained.
+    assert torch.allclose(with_graph["logits"], without_graph["logits"])
+
+
+def test_perplexity_uses_next_token_loss_only(tmp_path):
+    corpus = [
+        "مجلس قانون جدید را تصویب کرد",
+        "دولت لایحه تازه را به مجلس فرستاد",
+        "نمایندگان درباره بودجه گفتگو کردند",
+        "وزیر گزارش اقتصادی را ارائه داد",
+    ]
+    metrics = train_graph_lm(
+        corpus,
+        training_config=LMTrainingConfig(
+            output_dir=str(tmp_path / "run"),
+            epochs=1,
+            batch_size=2,
+            validation_ratio=0.25,
+            block_size=8,
+            device="cpu",
+            seed=0,
+        ),
+        graph_encoder="none",
+    )
+
+    import math
+
+    row = metrics["history"][0]
+    assert row["perplexity"] == math.exp(row["validation_next_token_loss"])
+    assert metrics["best_perplexity"] == math.exp(metrics["best_next_token_loss"])
+    # The old implementation capped every run at exp(20) computed from the
+    # total multi-task loss.
+    assert metrics["best_perplexity"] != math.exp(20.0)
+
+
 def test_graph_lm_forward_shape():
     texts = ["مجلس قانون را تصویب کرد", "دولت لایحه جدید آورد"]
     tokenizer = PersianTokenizer().fit(texts)

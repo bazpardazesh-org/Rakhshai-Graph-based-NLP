@@ -1,0 +1,78 @@
+{
+  "window_size": 4,
+  "min_count": 1,
+  "weighting": "distance",
+  "min_edge_weight": 0.0,
+  "top_k": null,
+  "directed": false,
+  "graph_scope": "document",
+  "context_node_type": "none",
+  "num_nodes": 480,
+  "num_edges": 3576,
+  "enabled_relations": [
+    "cooccurrence",
+    "pmi",
+    "stem",
+    "word_document",
+    "topic_document"
+  ],
+  "relation_weights": {
+    "cooccurrence": 1.0,
+    "pmi": 1.0,
+    "stem": 1.0,
+    "word_document": 1.0,
+    "topic_document": 1.0
+  },
+  "edge_types": {
+    "cooccurrence": 0,
+    "pmi": 1,
+    "stem": 2,
+    "word_document": 3,
+    "topic_document": 4
+  },
+  "relation_edge_counts": {
+    "cooccurrence": 4646,
+    "pmi": 4646,
+    "stem": 32,
+    "word_document": 2104,
+    "topic_document": 372
+  },
+  "node_type_counts": {
+    "token": 383,
+    "document": 89,
+    "topic": 8
+  },
+  "semantic_similarity_threshold": 0.6,
+  "semantic_top_k": 4,
+  "topic_top_k": 8,
+  "build_batch_size": null,
+  "graph_build_batches": 1,
+  "cache_key": "f4a58b9f1fa8e3fb0c91c64a",
+  "cache_hit": false,
+  "build_seconds": 0.011694917004206218,
+  "dynamic_graph": false,
+  "graph_source": "train",
+  "scalability": {
+    "cache_enabled": false,
+    "cache_hit": false,
+    "cache_key": "f4a58b9f1fa8e3fb0c91c64a",
+    "cache_path": null,
+    "build_seconds": 0.011694917004206218,
+    "build_batch_size": null,
+    "graph_build_batches": 1,
+    "num_nodes": 480,
+    "num_edges": 3576
+  },
+  "low_data_training": {
+    "text_augmentation": true,
+    "augmentation_ratio": 0.5,
+    "augmented_train_examples": 89,
+    "original_train_examples": 64,
+    "node_dropout": 0.05,
+    "edge_dropout": 0.1,
+    "subgraph_sampling_ratio": 0.9,
+    "contrastive_weight": 0.05,
+    "curriculum_learning": true,
+    "early_stopping_patience": 3
+  }
+}

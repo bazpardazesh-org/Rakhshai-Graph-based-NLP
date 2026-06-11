@@ -129,6 +129,26 @@ For V2 runs, `context_gated` and adaptive graph-text controls are available for
 token, sentence and subgraph-level fusion. For v1 comparisons, `gated` remains
 the stable simple-graph default.
 
+#### Zero-Init Gating
+
+The `gated` and `context_gated` modes (and the sentence/subgraph levels) are
+residual with a zero-initialised scalar gate:
+
+```
+hidden = token_embeddings + tanh(alpha) * (1 - gate) * graph_embeddings
+```
+
+`alpha` starts at zero, so an untrained Graph-LM is exactly equivalent to the
+no-graph baseline and graph information only enters once training finds it
+useful. This replaces the earlier formulation
+`gate * token + (1 - gate) * graph`, which substituted part of every token
+embedding with a static graph vector and measurably hurt next-token perplexity
+on small corpora. The learned gate openness is reported per level in
+`metrics.json` fusion stats as `token_alpha_tanh`, `sentence_alpha_tanh` and
+`subgraph_alpha_tanh`; values near zero mean the model is effectively ignoring
+the graph. Checkpoints saved before this change load with `alpha = 0`, i.e.
+their graph contribution is disabled.
+
 ### Language Model
 
 Implementation: `rakhshai_graph_nlp/lm/model.py`
@@ -147,10 +167,14 @@ loss history and perplexity reporting.
 Stable V2 metrics:
 
 - `train_loss`
-- `validation_loss`
-- `perplexity`
+- `validation_loss` (total multi-task loss; used for checkpoint selection and
+  early stopping)
+- `validation_next_token_loss` (next-token cross-entropy only)
+- `perplexity` (computed from `validation_next_token_loss`, not the total
+  multi-task loss)
 - `best_validation_loss`
-- `best_perplexity`
+- `best_next_token_loss`
+- `best_perplexity` (computed from `best_next_token_loss`)
 - graph gate statistics when fusion exposes them
 - overfitting and early-stopping reports when low-data training options are used
 

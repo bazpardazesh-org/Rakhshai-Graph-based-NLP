@@ -480,12 +480,19 @@ class LMTrainer:
                 val_loss = train_loss
                 validation_fusion_stats = train_fusion_stats
                 validation_task_losses = train_task_losses
+            # Perplexity must come from the next-token cross-entropy alone;
+            # the total validation loss also contains the other weighted
+            # multi-task terms and is not a language-modelling loss.
+            val_next_token = float(
+                validation_task_losses.get("next_token", val_loss)
+            )
             row = {
                 "epoch": epoch,
                 "train_loss": train_loss,
                 "validation_loss": val_loss,
+                "validation_next_token_loss": val_next_token,
                 "generalization_gap": val_loss - train_loss,
-                "perplexity": perplexity(val_loss),
+                "perplexity": perplexity(val_next_token),
             }
             if train_fusion_stats:
                 row["train_fusion"] = train_fusion_stats
@@ -535,12 +542,22 @@ class LMTrainer:
                 )
                 break
 
+        best_row = next(
+            (row for row in history if row.get("epoch") == best_epoch),
+            None,
+        )
+        best_next_token = (
+            float(best_row.get("validation_next_token_loss", best_row["validation_loss"]))
+            if best_row is not None
+            else best_val
+        )
         metrics = {
             "training_config": asdict(self.config),
             "model_config": asdict(self.model.config),
             "history": history,
             "best_validation_loss": best_val,
-            "best_perplexity": perplexity(best_val),
+            "best_next_token_loss": best_next_token,
+            "best_perplexity": perplexity(best_next_token),
             "best_epoch": best_epoch,
             "epochs_ran": len(history),
             "resumed_from": self.config.resume_from,

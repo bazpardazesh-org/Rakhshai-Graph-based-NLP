@@ -28,11 +28,20 @@ graph embeddings through **Gated Graph-Token Fusion** inside a Transformer causa
 language model. The model output is `batch x sequence x vocab_size`, designed
 for next-token prediction and Persian text generation.
 
-In an initial experiment on an expanded Persian corpus, the
-`Graph-LM / GCN + gated` path achieved lower perplexity than a no-graph baseline.
-This suggests that graph-based lexical relationships can help next-token
-prediction in this setup. The path is still experimental, and final quality
-depends on data size, training settings, and broader evaluation.
+An early experiment on an expanded Persian corpus reported lower perplexity for
+the `Graph-LM / GCN + gated` path than for a no-graph baseline, but that result
+was produced before two implementation fixes (embedding initialization and
+perplexity computed from the next-token loss only). After the fixes, the graph
+fusion was redesigned with **zero-initialized gating**: the untrained model is
+exactly equivalent to the no-graph baseline, and graph information only enters
+through a learnable `tanh(alpha)` gate once training finds it useful. With this
+design, the graph path matches the baseline on the small evaluation corpus
+(no measurable advantage yet, and no harm either). This is a provisional,
+small-data observation, not a final verdict: Graph-LM is designed to exploit
+rich structures and wide-ranging relations, and a fair evaluation of that
+capacity requires training and testing on much larger Persian corpora. The
+bundled small corpus is suitable only for smoke tests and implementation-health
+checks.
 
 This open-source library is created and maintained by the
 [RakhshAI](https://rakhshai.com/) development team, affiliated with Aria Haman
@@ -132,15 +141,41 @@ as documents or topics.
 
 To validate the new path, an expanded Persian corpus was created and two models
 were compared under similar conditions: the graph model `Graph-LM / GCN + gated`
-and a no-graph baseline. The small initial experiment produced:
+and a no-graph baseline. The original numbers published here (perplexity
+1344.77 vs 1634.99, about 18% in favour of the graph model) were produced
+before two implementation fixes: embedding initialization with a small std, and
+perplexity computed from the next-token cross-entropy only instead of the total
+multi-task loss. Rerunning the identical experiment (same corpus,
+hyperparameters, and seeds 0-2) with the fixed code gives:
 
-| Model | best validation loss | best perplexity |
-| --- | ---: | ---: |
-| `Graph-LM / GCN + gated` | 7.2040 | 1344.7671 |
-| `Baseline / no graph` | 7.3994 | 1634.9926 |
+| Model | best perplexity (mean ± std, 3 seeds) |
+| --- | ---: |
+| `Baseline / no graph` | 121.7 ± 4.6 |
+| `Graph-LM / GCN + gated`, original fusion | 179.2 ± 18.5 |
+| `Graph-LM / GCN + gated`, zero-init gating | 120.4 ± 24.4 |
 
-In this run, Graph-LM achieved about 18% lower perplexity than the no-graph
-baseline.
+With the fixed code, the original input-replacing fusion actively hurt the
+language model; the earlier 18% advantage was an artifact of the implementation
+issues, not of graph fusion. After redesigning the fusion with zero-initialized
+gating, the graph model reaches the same perplexity as the no-graph baseline.
+The learned gate (`tanh(alpha)` reported in `metrics.json` as
+`token_alpha_tanh`) stays close to zero on this corpus — the model finds little
+useful graph signal in 71 sentences, which is expected.
+
+**Scope of this benchmark.** These numbers are a provisional, small-data
+observation. No conclusion about the value of graph fusion for Persian language
+modeling should be drawn from this corpus: it exists for smoke testing,
+implementation-health checks, and quick comparisons of settings. Graph-LM is
+designed to exploit rich structures and wide-ranging lexical relations, and
+judging that capacity fairly requires training and evaluation on substantially
+larger Persian corpora.
+
+**Design philosophy.** Rakhshai develops and evaluates a native, self-contained
+Persian language-model architecture. For now the project intentionally does not
+use external pretrained language models, knowledge distillation from other
+models, pretrained embeddings, or LLM-generated synthetic data, so that the
+capabilities and limits of the Graph-LM architecture itself can be measured
+transparently, without borrowing knowledge from other models.
 
 Sample generated output with a corpus smaller than large language models:
 
@@ -959,12 +994,18 @@ cities, politics, education, economy, sports, art, and the Graph-LM architecture
 itself, so political, weather, education, and graph-modeling lexical
 relationships are visible in the co-occurrence graph.
 
-Initial comparison:
+Comparison with the fixed implementation (seeds 0-2; the pre-fix artifacts are
+kept in `runs/compare-graph-lm` and `runs/compare-baseline-lm` for reference,
+but their metrics are not valid):
 
-| Model | best validation loss | best perplexity | Output path |
-| --- | ---: | ---: | --- |
-| `Graph-LM / GCN + gated` | 7.2040 | 1344.7671 | `runs/compare-graph-lm` |
-| `Baseline / no graph` | 7.3994 | 1634.9926 | `runs/compare-baseline-lm` |
+| Model | best perplexity (mean ± std) | Output path |
+| --- | ---: | --- |
+| `Baseline / no graph` | 121.7 ± 4.6 | `runs/compare-fixed/baseline-s*` |
+| `Graph-LM / GCN + gated`, original fusion | 179.2 ± 18.5 | `runs/compare-fixed/graph-lm-s*` |
+| `Graph-LM / GCN + gated`, zero-init gating | 120.4 ± 24.4 | `runs/compare-fixed/graph-lm-zeroinit-s*` |
+
+This benchmark is a smoke test of the implementation, not an evaluation of
+model quality; see "Scope of this benchmark" above.
 
 Sample generated text with the demo model:
 

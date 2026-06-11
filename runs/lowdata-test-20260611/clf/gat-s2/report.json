@@ -1,0 +1,31 @@
+{
+  "dataset": "benchmarks/persian_text_classification.csv",
+  "model": "gat",
+  "device": "cpu",
+  "num_documents": 24,
+  "num_nodes": 175,
+  "num_classes": 3,
+  "label_to_id": {
+    "art": 0,
+    "politics": 1,
+    "sports": 2
+  },
+  "splits": {
+    "train": {
+      "count": 16,
+      "accuracy": 0.9375,
+      "macro_f1": 0.9267399267399267
+    },
+    "validation": {
+      "count": 4,
+      "accuracy": 0.75,
+      "macro_f1": 0.7777777777777777
+    },
+    "test": {
+      "count": 4,
+      "accuracy": 0.75,
+      "macro_f1": 0.6
+    }
+  },
+  "final_loss": 0.8322649002075195
+}

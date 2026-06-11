@@ -1,0 +1,8 @@
+{
+  "max_new_tokens": 100,
+  "min_new_tokens": 0,
+  "temperature": 1.0,
+  "top_k": 50,
+  "repetition_penalty": 1.0,
+  "eos_token_id": 3
+}

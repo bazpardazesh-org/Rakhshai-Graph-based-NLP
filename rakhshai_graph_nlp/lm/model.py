@@ -343,6 +343,13 @@ class GraphTokenFusion(nn.Module):
         self.sentence_gate = nn.Linear(config.d_model * 2, config.d_model)
         self.subgraph_gate = nn.Linear(config.d_model * 2, config.d_model)
         self.norm = nn.LayerNorm(config.d_model)
+        # Zero-init gating (Flamingo-style): each fusion level scales its graph
+        # update by tanh(alpha) with alpha starting at zero, so an untrained
+        # model is exactly equivalent to the no-graph baseline and graph
+        # information only flows in once training finds it useful.
+        self.token_alpha = nn.Parameter(torch.zeros(1))
+        self.sentence_alpha = nn.Parameter(torch.zeros(1))
+        self.subgraph_alpha = nn.Parameter(torch.zeros(1))
 
     @staticmethod
     def _parse_levels(raw_levels: str) -> set[str]:
@@ -395,10 +402,15 @@ class GraphTokenFusion(nn.Module):
             )
             gate = torch.sigmoid(self.gate(gate_input))
             fused = gate * token_embeddings + (1.0 - gate) * graph_embeddings
-            return self.norm(token_embeddings + fused), gate
+            return (
+                token_embeddings
+                + torch.tanh(self.token_alpha) * self.norm(fused),
+                gate,
+            )
         gate_input = torch.cat([token_embeddings, graph_embeddings], dim=-1)
         gate = torch.sigmoid(self.gate(gate_input))
-        return gate * token_embeddings + (1.0 - gate) * graph_embeddings, gate
+        update = (1.0 - gate) * graph_embeddings
+        return token_embeddings + torch.tanh(self.token_alpha) * update, gate
 
     @staticmethod
     def _gate_stats(prefix: str, gate: torch.Tensor | None) -> dict[str, torch.Tensor]:
@@ -432,18 +444,25 @@ class GraphTokenFusion(nn.Module):
                 context_embeddings=context_embeddings,
             )
             stats.update(self._gate_stats("token", gate))
+            stats["token_alpha_tanh"] = torch.tanh(self.token_alpha).reshape(())
         if "sentence" in self.fusion_levels:
             sentence_graph = graph_embeddings.mean(dim=1, keepdim=True).expand_as(hidden)
             sentence_input = torch.cat([hidden, sentence_graph], dim=-1)
             gate = torch.sigmoid(self.sentence_gate(sentence_input))
-            hidden = gate * hidden + (1.0 - gate) * sentence_graph
+            hidden = hidden + torch.tanh(self.sentence_alpha) * (
+                (1.0 - gate) * sentence_graph
+            )
             stats.update(self._gate_stats("sentence", gate))
+            stats["sentence_alpha_tanh"] = torch.tanh(self.sentence_alpha).reshape(())
         if "subgraph" in self.fusion_levels and subgraph_embeddings is not None:
             subgraph = self.graph_dropout(subgraph_embeddings) * self.graph_fusion_scale
             subgraph_input = torch.cat([hidden, subgraph], dim=-1)
             gate = torch.sigmoid(self.subgraph_gate(subgraph_input))
-            hidden = gate * hidden + (1.0 - gate) * subgraph
+            hidden = hidden + torch.tanh(self.subgraph_alpha) * (
+                (1.0 - gate) * subgraph
+            )
             stats.update(self._gate_stats("subgraph", gate))
+            stats["subgraph_alpha_tanh"] = torch.tanh(self.subgraph_alpha).reshape(())
         if return_stats:
             return hidden, stats
         return hidden
@@ -488,6 +507,14 @@ class GraphCausalLM(nn.Module):
             max(1, config.graph_edge_types),
         )
         self.dropout = nn.Dropout(config.dropout)
+        # The lm_head is tied to token_embedding, so the default N(0, 1)
+        # embedding init produces logits on the order of sqrt(d_model) and an
+        # initial cross-entropy far above ln(vocab_size). Small-std init keeps
+        # the untrained model near the uniform distribution.
+        nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
+        nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
+        with torch.no_grad():
+            self.token_embedding.weight[config.pad_token_id].zero_()
 
     def _causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
         return torch.triu(
@@ -852,4 +879,9 @@ class GraphCausalLM(nn.Module):
 
 
 def perplexity(loss: float) -> float:
-    return float(math.exp(min(loss, 20.0)))
+    """Perplexity of a mean next-token cross-entropy loss.
+
+    The clamp only guards against float overflow (exp overflows above ~709);
+    any realistic loss is reported unclamped.
+    """
+    return float(math.exp(min(loss, 700.0)))

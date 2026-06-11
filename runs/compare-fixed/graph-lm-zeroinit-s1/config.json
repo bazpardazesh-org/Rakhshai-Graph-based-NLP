@@ -1,0 +1,22 @@
+{
+  "vocab_size": 392,
+  "max_seq_len": 24,
+  "d_model": 64,
+  "n_heads": 4,
+  "n_layers": 2,
+  "dim_feedforward": 128,
+  "dropout": 0.0,
+  "graph_encoder": "gcn",
+  "graph_hidden_dim": 64,
+  "graph_heads": 4,
+  "graph_relation_mode": "bias",
+  "graph_pooling": "none",
+  "graph_node_importance": false,
+  "fusion": "gated",
+  "fusion_layers": "input",
+  "fusion_levels": "token",
+  "graph_fusion_scale": 1.0,
+  "graph_fusion_dropout": 0.0,
+  "graph_edge_types": 6,
+  "pad_token_id": 0
+}
