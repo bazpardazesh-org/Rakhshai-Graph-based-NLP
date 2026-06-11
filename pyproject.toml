@@ -9,7 +9,7 @@ description = "Graph-based NLP utilities for Persian text"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [{name = "RakhshAI Team"}]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.23",
     "scipy>=1.9",
@@ -36,7 +36,6 @@ classifiers = [
     "Natural Language :: Persian",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
