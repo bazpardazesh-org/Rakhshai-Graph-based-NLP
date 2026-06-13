@@ -20,6 +20,21 @@ graph construction to training, evaluation, prediction on new text, and model
 save/load. Its goal is to create a practical bridge between Persian language
 processing, graph modeling, and deep graph learning.
 
+## Knowledge-Based Certification
+
+**Graph-Based NLP Service Library (Rakhshai-Graph-based-NLP)**, developed by **Aria Haman Mehr Parseh**, has received knowledge-based certification in Iran.
+
+The company’s knowledge-based status can be verified through the official knowledge-based companies inquiry system by searching the company’s national ID.
+
+- **Official inquiry link:** [Knowledge-Based Companies Inquiry System](https://pub.daneshbonyan.ir/dashboard)
+- **Company national ID:** `14009192677`
+
+> Company: Aria Haman Mehr Parse  
+> National ID: `14009192677`  
+> Product: Graph-Based NLP Service Library (Rakhshai-Graph-based-NLP)  
+> Field: Persian NLP, graph-based text modeling, and AI infrastructure
+
+## Rakhshai V2
 Rakhshai V2 is no longer only a graph classification toolkit; it also includes a
 real **Persian Graph-LM** path. In this path, Persian text is
 converted into numeric tokens, a word co-occurrence graph is built from the same
