@@ -26,6 +26,10 @@ class GraphLMConfig:
     n_layers: int = 2
     dim_feedforward: int = 512
     dropout: float = 0.1
+    position_encoding: str = "rope"
+    ffn_type: str = "swiglu"
+    norm_type: str = "rmsnorm"
+    rope_theta: float = 10000.0
     graph_encoder: str = "gat"
     graph_hidden_dim: int = 128
     graph_heads: int = 4
@@ -468,6 +472,200 @@ class GraphTokenFusion(nn.Module):
         return hidden
 
 
+class RMSNorm(nn.Module):
+    """Root-mean-square layer normalisation (no mean subtraction, no bias)."""
+
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        normed = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return normed.to(x.dtype) * self.weight
+
+
+def _build_norm(norm_type: str, dim: int) -> nn.Module:
+    norm_type = norm_type.lower()
+    if norm_type == "rmsnorm":
+        return RMSNorm(dim)
+    if norm_type == "layernorm":
+        return nn.LayerNorm(dim)
+    raise ValueError("norm_type must be one of: rmsnorm, layernorm")
+
+
+class RotaryEmbedding(nn.Module):
+    """Rotary positional embedding (RoPE) cos/sin table generator."""
+
+    def __init__(self, head_dim: int, theta: float = 10000.0):
+        super().__init__()
+        if head_dim % 2 != 0:
+            raise ValueError("RoPE requires an even head dimension (d_model / n_heads)")
+        inv_freq = 1.0 / (
+            theta ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim)
+        )
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+    def forward(
+        self, seq_len: int, device: torch.device, *, offset: int = 0
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        positions = torch.arange(
+            offset, offset + seq_len, device=device, dtype=torch.float32
+        )
+        freqs = torch.outer(positions, self.inv_freq.to(device))
+        emb = torch.cat([freqs, freqs], dim=-1)
+        return emb.cos(), emb.sin()
+
+
+def _rotate_half(x: torch.Tensor) -> torch.Tensor:
+    half = x.shape[-1] // 2
+    x1, x2 = x[..., :half], x[..., half:]
+    return torch.cat([-x2, x1], dim=-1)
+
+
+def _apply_rope(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    # q, k: (B, H, T, head_dim); cos, sin: (T, head_dim)
+    cos = cos.to(q.dtype).unsqueeze(0).unsqueeze(0)
+    sin = sin.to(q.dtype).unsqueeze(0).unsqueeze(0)
+    q_rot = q * cos + _rotate_half(q) * sin
+    k_rot = k * cos + _rotate_half(k) * sin
+    return q_rot, k_rot
+
+
+class RakhshaiSelfAttention(nn.Module):
+    """Causal multi-head self-attention with RoPE and optional KV cache."""
+
+    def __init__(self, config: GraphLMConfig):
+        super().__init__()
+        if config.d_model % config.n_heads != 0:
+            raise ValueError("d_model must be divisible by n_heads")
+        self.n_heads = config.n_heads
+        self.head_dim = config.d_model // config.n_heads
+        self.q_proj = nn.Linear(config.d_model, config.d_model)
+        self.k_proj = nn.Linear(config.d_model, config.d_model)
+        self.v_proj = nn.Linear(config.d_model, config.d_model)
+        self.out_proj = nn.Linear(config.d_model, config.d_model)
+        self.dropout_p = config.dropout
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        *,
+        rope: tuple[torch.Tensor, torch.Tensor] | None = None,
+        key_padding_mask: torch.Tensor | None = None,
+        past_key_value: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
+        batch, seq_len, _ = x.shape
+        q = self.q_proj(x).view(batch, seq_len, self.n_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(x).view(batch, seq_len, self.n_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(x).view(batch, seq_len, self.n_heads, self.head_dim).transpose(1, 2)
+
+        offset = 0 if past_key_value is None else past_key_value[0].shape[2]
+        if rope is not None:
+            cos, sin = rope
+            q, k = _apply_rope(q, k, cos, sin)
+        if past_key_value is not None:
+            k = torch.cat([past_key_value[0], k], dim=2)
+            v = torch.cat([past_key_value[1], v], dim=2)
+        present = (k, v) if use_cache else None
+
+        total_keys = k.shape[2]
+        # Causal mask in absolute positions: query (offset + i) cannot see a key
+        # at absolute position j > offset + i.
+        q_idx = torch.arange(seq_len, device=x.device) + offset
+        k_idx = torch.arange(total_keys, device=x.device)
+        attn_mask = torch.zeros(seq_len, total_keys, device=x.device, dtype=q.dtype)
+        attn_mask = attn_mask.masked_fill(
+            k_idx[None, :] > q_idx[:, None], float("-inf")
+        ).unsqueeze(0).unsqueeze(0)
+        if key_padding_mask is not None:
+            pad = key_padding_mask[:, None, None, :].to(torch.bool)
+            attn_mask = attn_mask.masked_fill(pad, float("-inf"))
+
+        attn = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=attn_mask,
+            dropout_p=self.dropout_p if self.training else 0.0,
+        )
+        attn = attn.transpose(1, 2).reshape(batch, seq_len, -1)
+        return self.out_proj(attn), present
+
+
+class SwiGLU(nn.Module):
+    """SwiGLU feed-forward block (gated SiLU)."""
+
+    def __init__(self, dim: int, hidden_dim: int):
+        super().__init__()
+        self.w_gate = nn.Linear(dim, hidden_dim)
+        self.w_up = nn.Linear(dim, hidden_dim)
+        self.w_down = nn.Linear(hidden_dim, dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.w_down(F.silu(self.w_gate(x)) * self.w_up(x))
+
+
+class GELUFeedForward(nn.Module):
+    """Classic two-layer GELU feed-forward block."""
+
+    def __init__(self, dim: int, hidden_dim: int, dropout: float):
+        super().__init__()
+        self.fc1 = nn.Linear(dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.fc2(self.dropout(F.gelu(self.fc1(x))))
+
+
+def _build_feed_forward(config: GraphLMConfig) -> nn.Module:
+    ffn_type = config.ffn_type.lower()
+    if ffn_type == "swiglu":
+        return SwiGLU(config.d_model, config.dim_feedforward)
+    if ffn_type == "gelu":
+        return GELUFeedForward(config.d_model, config.dim_feedforward, config.dropout)
+    raise ValueError("ffn_type must be one of: swiglu, gelu")
+
+
+class RakhshaiDecoderLayer(nn.Module):
+    """Pre-norm Transformer decoder layer (RoPE attention + SwiGLU/GELU FFN)."""
+
+    def __init__(self, config: GraphLMConfig):
+        super().__init__()
+        self.attn = RakhshaiSelfAttention(config)
+        self.ffn = _build_feed_forward(config)
+        self.norm1 = _build_norm(config.norm_type, config.d_model)
+        self.norm2 = _build_norm(config.norm_type, config.d_model)
+        self.dropout = nn.Dropout(config.dropout)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        *,
+        rope: tuple[torch.Tensor, torch.Tensor] | None = None,
+        key_padding_mask: torch.Tensor | None = None,
+        past_key_value: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
+        attn_out, present = self.attn(
+            self.norm1(x),
+            rope=rope,
+            key_padding_mask=key_padding_mask,
+            past_key_value=past_key_value,
+            use_cache=use_cache,
+        )
+        x = x + self.dropout(attn_out)
+        x = x + self.dropout(self.ffn(self.norm2(x)))
+        return x, present
+
+
 class GraphCausalLM(nn.Module):
     """Persian Graph-LM with Rakhshai graph encoder and gated token fusion."""
 
@@ -479,7 +677,21 @@ class GraphCausalLM(nn.Module):
             config.d_model,
             padding_idx=config.pad_token_id,
         )
-        self.position_embedding = nn.Embedding(config.max_seq_len, config.d_model)
+        self.position_encoding = config.position_encoding.lower()
+        if self.position_encoding not in {"rope", "learned"}:
+            raise ValueError("position_encoding must be one of: rope, learned")
+        # Learned absolute positions use an embedding table; RoPE injects
+        # position inside attention and needs no table.
+        self.position_embedding = (
+            nn.Embedding(config.max_seq_len, config.d_model)
+            if self.position_encoding == "learned"
+            else None
+        )
+        self.rope = (
+            RotaryEmbedding(config.d_model // config.n_heads, theta=config.rope_theta)
+            if self.position_encoding == "rope"
+            else None
+        )
         self.graph_encoder = (
             None
             if config.graph_encoder.lower() == "none"
@@ -487,19 +699,9 @@ class GraphCausalLM(nn.Module):
         )
         self.fusion = GraphTokenFusion(config)
         self.transformer_layers = nn.ModuleList(
-            [
-                nn.TransformerEncoderLayer(
-                    d_model=config.d_model,
-                    nhead=config.n_heads,
-                    dim_feedforward=config.dim_feedforward,
-                    dropout=config.dropout,
-                    batch_first=True,
-                    activation="gelu",
-                )
-                for _ in range(config.n_layers)
-            ]
+            [RakhshaiDecoderLayer(config) for _ in range(config.n_layers)]
         )
-        self.final_norm = nn.LayerNorm(config.d_model)
+        self.final_norm = _build_norm(config.norm_type, config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
         self.lm_head.weight = self.token_embedding.weight
         self.node_relation_head = nn.Linear(
@@ -512,15 +714,17 @@ class GraphCausalLM(nn.Module):
         # initial cross-entropy far above ln(vocab_size). Small-std init keeps
         # the untrained model near the uniform distribution.
         nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
-        nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
+        if self.position_embedding is not None:
+            nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
         with torch.no_grad():
             self.token_embedding.weight[config.pad_token_id].zero_()
 
-    def _causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
-        return torch.triu(
-            torch.ones((seq_len, seq_len), dtype=torch.bool, device=device),
-            diagonal=1,
-        )
+    def _rope_table(
+        self, seq_len: int, device: torch.device, *, offset: int = 0
+    ) -> tuple[torch.Tensor, torch.Tensor] | None:
+        if self.rope is None:
+            return None
+        return self.rope(seq_len, device, offset=offset)
 
     def _graph_embedding_table(
         self,
@@ -638,7 +842,6 @@ class GraphCausalLM(nn.Module):
                 graph_embeddings = graph_embeddings[:, -self.config.max_seq_len :]
             seq_len = self.config.max_seq_len
 
-        positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
         token_embeddings = self.token_embedding(input_ids)
         has_graph = graph_embeddings is not None or (
             self.graph_encoder is not None
@@ -663,9 +866,12 @@ class GraphCausalLM(nn.Module):
                 return_stats=True,
             )
             hidden, fusion_stats = fused
-        hidden = self.dropout(hidden + self.position_embedding(positions))
+        if self.position_embedding is not None:
+            positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
+            hidden = hidden + self.position_embedding(positions)
+        hidden = self.dropout(hidden)
+        rope = self._rope_table(seq_len, input_ids.device)
         padding_mask = input_ids.eq(self.config.pad_token_id)
-        mask = self._causal_mask(seq_len, input_ids.device)
         for layer in self.transformer_layers:
             if has_graph and self.config.fusion_layers == "all":
                 fused = self.fusion(
@@ -678,7 +884,7 @@ class GraphCausalLM(nn.Module):
                 hidden, layer_stats = fused
                 for key, value in layer_stats.items():
                     fusion_stats[f"layer_{key}"] = value
-            hidden = layer(hidden, src_mask=mask, src_key_padding_mask=padding_mask)
+            hidden, _ = layer(hidden, rope=rope, key_padding_mask=padding_mask)
         hidden = self.final_norm(hidden)
         logits = self.lm_head(hidden)
         output = {"logits": logits}
@@ -698,6 +904,108 @@ class GraphCausalLM(nn.Module):
             )
             output["loss"] = loss
         return output
+
+    def _precompute_graph_table(
+        self,
+        graph_data: Data | None,
+        token_node_ids: torch.Tensor | None,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        """Encode the static graph once for cached generation.
+
+        Returns a ``(vocab_size, d_model)`` table mapping each token id to its
+        graph embedding, plus a single pooled subgraph embedding. Both are
+        reused for every decoding step instead of re-running the GNN per token.
+        """
+        token_table = self.token_embedding.weight
+        if self.graph_encoder is None or graph_data is None or token_node_ids is None:
+            return None, None
+        token_node_ids = token_node_ids.to(token_table.device)
+        valid = token_node_ids >= 0
+        if not valid.any():
+            return None, None
+        node_features = token_table.new_zeros((graph_data.num_nodes, token_table.size(1)))
+        node_features[token_node_ids[valid]] = token_table[valid]
+        node_embeddings = self.graph_encoder(node_features, graph_data)
+        graph_table = torch.zeros_like(token_table)
+        graph_table[valid] = node_embeddings[token_node_ids[valid]]
+
+        node_type_id = getattr(graph_data, "node_type_id", None)
+        mask = torch.zeros(
+            node_embeddings.size(0), dtype=torch.bool, device=token_table.device
+        )
+        if node_type_id is not None and (node_type_id.to(token_table.device) != 0).any():
+            mask = node_type_id.to(token_table.device) != 0
+        else:
+            mask[token_node_ids[valid]] = True
+        subgraph = node_embeddings[mask].mean(dim=0) if mask.any() else None
+        return graph_table, subgraph
+
+    def _decode_forward(
+        self,
+        input_ids: torch.Tensor,
+        *,
+        offset: int,
+        past_key_values: list | None,
+        graph_table: torch.Tensor | None,
+        subgraph: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, list]:
+        """Single cached decoding step (KV cache, input-level graph fusion)."""
+        batch, seq_len = input_ids.shape
+        hidden = self.token_embedding(input_ids)
+        if graph_table is not None:
+            graph_embeddings = F.embedding(input_ids.clamp_min(0), graph_table)
+            subgraph_embeddings = (
+                subgraph.view(1, 1, -1).expand(batch, seq_len, -1)
+                if subgraph is not None
+                else None
+            )
+            hidden = self.fusion(
+                hidden,
+                graph_embeddings,
+                subgraph_embeddings=subgraph_embeddings,
+            )
+        if self.position_embedding is not None:
+            positions = torch.arange(
+                offset, offset + seq_len, device=input_ids.device
+            ).unsqueeze(0)
+            hidden = hidden + self.position_embedding(positions)
+        hidden = self.dropout(hidden)
+        rope = self._rope_table(seq_len, input_ids.device, offset=offset)
+        presents: list = []
+        for index, layer in enumerate(self.transformer_layers):
+            past = None if past_key_values is None else past_key_values[index]
+            hidden, present = layer(
+                hidden,
+                rope=rope,
+                past_key_value=past,
+                use_cache=True,
+            )
+            presents.append(present)
+        hidden = self.final_norm(hidden)
+        return self.lm_head(hidden), presents
+
+    @staticmethod
+    def _sample_next(
+        logits: torch.Tensor,
+        input_ids: torch.Tensor,
+        cfg: GenerationConfig,
+    ) -> torch.Tensor:
+        """Apply repetition penalty, temperature and top-k, then sample."""
+        logits = logits.clone()
+        if cfg.repetition_penalty and cfg.repetition_penalty != 1.0:
+            for token_id in set(input_ids[0].tolist()):
+                if logits[0, token_id] > 0:
+                    logits[0, token_id] /= cfg.repetition_penalty
+                else:
+                    logits[0, token_id] *= cfg.repetition_penalty
+        logits = logits / max(cfg.temperature, 1e-6)
+        if cfg.top_k and cfg.top_k > 0:
+            values, indices = torch.topk(logits, k=min(cfg.top_k, logits.size(-1)))
+            filtered = torch.full_like(logits, float("-inf"))
+            filtered.scatter_(1, indices, values)
+            logits = filtered
+        probs = torch.softmax(logits, dim=-1)
+        return torch.multinomial(probs, num_samples=1)
 
     @torch.no_grad()
     def generate(
@@ -737,6 +1045,44 @@ class GraphCausalLM(nn.Module):
                 graph_data = memory_context.graph_data
                 token_node_ids = memory_context.token_node_ids
 
+        # KV-cache fast path: RoPE has no fixed position table, the graph is
+        # static, and fusion happens at the input, so each step only needs to
+        # encode the single new token while attending to cached keys/values.
+        use_cache = (
+            self.position_encoding == "rope"
+            and dynamic_graph_config is None
+            and self.config.fusion_layers != "all"
+        )
+        if use_cache:
+            graph_table, subgraph = self._precompute_graph_table(
+                graph_data, token_node_ids
+            )
+            past_key_values: list | None = None
+            offset = 0
+            step_input = input_ids
+            generated = 0
+            while generated < cfg.max_new_tokens:
+                logits, past_key_values = self._decode_forward(
+                    step_input,
+                    offset=offset,
+                    past_key_values=past_key_values,
+                    graph_table=graph_table,
+                    subgraph=subgraph,
+                )
+                offset += step_input.size(1)
+                next_id = self._sample_next(logits[:, -1, :], input_ids, cfg)
+                input_ids = torch.cat([input_ids, next_id], dim=1)
+                step_input = next_id
+                generated += 1
+                if (
+                    generated >= cfg.min_new_tokens
+                    and int(next_id.item()) == cfg.eos_token_id
+                ):
+                    break
+            return tokenizer.decode(input_ids[0].tolist())
+
+        # Fallback (dynamic graph, learned positions, or per-layer fusion): the
+        # full context is re-encoded with a sliding window every step.
         for _ in range(cfg.max_new_tokens):
             context = input_ids[:, -self.config.max_seq_len :]
             step_graph_data = graph_data
@@ -760,21 +1106,7 @@ class GraphCausalLM(nn.Module):
                 graph_data=step_graph_data,
                 token_node_ids=step_token_node_ids,
             )["logits"][:, -1, :]
-            if cfg.repetition_penalty and cfg.repetition_penalty != 1.0:
-                seen = set(input_ids[0].tolist())
-                for token_id in seen:
-                    if logits[0, token_id] > 0:
-                        logits[0, token_id] /= cfg.repetition_penalty
-                    else:
-                        logits[0, token_id] *= cfg.repetition_penalty
-            logits = logits / max(cfg.temperature, 1e-6)
-            if cfg.top_k and cfg.top_k > 0:
-                values, indices = torch.topk(logits, k=min(cfg.top_k, logits.size(-1)))
-                filtered = torch.full_like(logits, float("-inf"))
-                filtered.scatter_(1, indices, values)
-                logits = filtered
-            probs = torch.softmax(logits, dim=-1)
-            next_id = torch.multinomial(probs, num_samples=1)
+            next_id = self._sample_next(logits, input_ids, cfg)
             input_ids = torch.cat([input_ids, next_id], dim=1)
             generated_count = input_ids.size(1) - len(ids)
             if (

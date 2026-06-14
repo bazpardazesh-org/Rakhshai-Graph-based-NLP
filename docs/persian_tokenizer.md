@@ -8,14 +8,35 @@ the v1 checkpoint contract compatible.
 - Shared Persian normalization for LM and feature tokenizers.
 - Configurable half-space handling: `preserve` or `split`.
 - Arabic/Persian character normalization such as `ي` to `ی` and `ك` to `ک`.
-- Arabic and Persian digit normalization to ASCII digits.
+- Arabic and Persian digit normalization to ASCII digits, including the Persian
+  decimal/thousands separators (`٫` → `.`, `٬` → `,`) so numbers such as
+  `۱۲٫۵` stay a single token instead of splitting.
+- Punctuation is emitted as standalone tokens. Persian marks (`،`, `؛`, `؟`, …)
+  are no longer glued onto adjacent words and ASCII marks (`.`, `!`, `:`, …) are
+  no longer dropped, so sentence boundaries are preserved for the LM.
+- Configurable hamza folding (`normalize_hamza`) and ezafe handling
+  (`ezafe_mode`); see [Normalization options](#normalization-options).
 - Optional light morphology splitting for common Persian prefixes and suffixes.
 - Optional compound verb joining for patterns such as `تصمیم گرفت`.
 - Tokenizer modes:
   - `word`
   - `char_chunk`, the backward-compatible replacement for the old `subword`
   - `bpe`, a lightweight built-in BPE trainer
-  - `unigram`, currently backed by the same lightweight subword path
+  - `unigram`, a genuine Unigram LM tokenizer trained with hard-EM (seed
+    substring vocabulary, Viterbi segmentation, iterative pruning to
+    `unigram_num_pieces`, single-character fallback for full coverage)
+
+## Normalization options
+
+`PersianNormalizerConfig` exposes two language-aware switches:
+
+- `normalize_hamza` (default `True`): folds hamza-bearing letters onto their
+  plain forms (`ئ` → `ی`, `ؤ` → `و`, e.g. `مسائل` → `مسایل`). Disable it to keep
+  the original orthography at the cost of a more fragmented vocabulary.
+- `ezafe_mode` (default `marker`): rewrites the ezafe (`ۀ` or `ه` + U+0654) as the
+  explicit `ه‌ی` marker so the grammatical construction survives as a learnable
+  token (`خانهٔ` → `خانه‌ی`). Set it to `collapse` to fold the ezafe onto a plain
+  `ه` (`خانهٔ` → `خانه`), the previous behaviour.
 
 ## CLI Examples
 
@@ -58,3 +79,8 @@ Graph-LM checkpoint files plus `tokenizer_stats` in `metrics.json`.
 
 Older tokenizer files without `tokenizer_type` still load as `word`. The old
 CLI value `subword` is accepted and mapped to `char_chunk`.
+
+Tokenizer configs serialised before `ezafe_mode` existed were produced under the
+old collapse behaviour, so they load with `ezafe_mode = "collapse"` to reproduce
+their original normalization faithfully. Only newly created tokenizers default to
+`marker`.

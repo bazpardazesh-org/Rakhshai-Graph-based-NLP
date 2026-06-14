@@ -39,9 +39,10 @@ Rakhshai V2 is no longer only a graph classification toolkit; it also includes a
 real **Persian Graph-LM** path. In this path, Persian text is
 converted into numeric tokens, a word co-occurrence graph is built from the same
 corpus, a GNN produces graph embeddings, and token embeddings are combined with
-graph embeddings through **Gated Graph-Token Fusion** inside a Transformer causal
-language model. The model output is `batch x sequence x vocab_size`, designed
-for next-token prediction and Persian text generation.
+graph embeddings through **Gated Graph-Token Fusion** inside a modern
+decoder-only Transformer (RoPE positions, SwiGLU feed-forward, RMSNorm pre-norm,
+and a KV cache for generation). The model output is `batch x sequence x
+vocab_size`, designed for next-token prediction and Persian text generation.
 
 An early experiment on an expanded Persian corpus reported lower perplexity for
 the `Graph-LM / GCN + gated` path than for a no-graph baseline, but that result
@@ -89,8 +90,16 @@ Mehr Parseh, and is released under the MIT license.
   CSV/TSV/JSONL files without writing much code.
 - **Persian Graph-LM with a Rakhshai-specific architecture:** The `lm-train`
   path brings together a Persian tokenizer, graph builder, GNN encoder, gated
-  graph-token fusion, Transformer causal LM, LM-specific trainer, perplexity,
+  graph-token fusion, a Transformer causal LM, LM-specific trainer, perplexity,
   complete checkpointing with sparse graph artifacts, and text generation.
+- **Modern Transformer decoder:** The causal LM uses rotary position embeddings
+  (RoPE), a SwiGLU feed-forward, RMSNorm with pre-norm residuals, and a KV cache
+  during generation. Each can be switched back to the classic variant
+  (`position_encoding`, `ffn_type`, `norm_type` on `GraphLMConfig`).
+- **Persian-aware tokenization:** Punctuation is tokenized separately (Persian
+  marks are no longer glued to words and ASCII marks are no longer dropped),
+  Persian decimal/thousands separators are normalized, hamza folding and ezafe
+  handling are configurable, and `unigram` is a genuine Unigram LM tokenizer.
 - **Graph Reasoning Core for multi-relation graphs:** The graph encoder can use
   multi-relation graph relation IDs through `bias`, `embedding`, or `rgcn`
   modes, use `RGCN` for relation-aware message passing, and optionally use node
@@ -151,6 +160,14 @@ learned through a gate. This gate can operate at several levels: token level for
 each sequence position, sentence level for controlling overall graph strength in
 the context, and subgraph level for injecting a summary of non-token nodes such
 as documents or topics.
+
+> **Checkpoint compatibility note.** The decoder was modernized (RoPE, SwiGLU,
+> RMSNorm, pre-norm) and the `unigram` tokenizer is now a real Unigram LM, while
+> the default `ezafe_mode` is now `marker`. Checkpoints saved before these
+> changes still load (`from_pretrained` uses `strict=False`) but their
+> transformer weights no longer match the new layout, so retrain to use the new
+> architecture. Tokenizer configs saved before `ezafe_mode` existed keep the old
+> `collapse` behaviour on load.
 
 ## Initial Graph-LM Result
 
@@ -296,10 +313,10 @@ nearby words and other documents.
 | `build_semantic_graph` | Builds semantic graphs from lexical relations and embedding similarity |
 | `build_semantic_graph_from_farsnet` | Builds semantic graphs from FarsNet JSON/CSV/TSV output |
 | `load_farsnet_relations` | Loads FarsNet relations from a file and converts them into graph-usable relations |
-| `PersianTokenizer` | Numeric LM tokenizer with half-space support, Persian cleanup, and normalization of common Persian/Arabic character variants |
+| `PersianTokenizer` | Numeric LM tokenizer with half-space support, Persian cleanup, standalone punctuation tokens, numeric-separator and configurable hamza/ezafe normalization, and `word`/`char_chunk`/`bpe`/`unigram` modes |
 | `LMDataset` | Prepares `input_ids` and `target_ids` for next-token prediction |
 | `build_graph_lm_graph` | Builds a word co-occurrence graph from a corpus for Graph-LM |
-| `GraphCausalLM` | Persian language model with GNN encoder, gated graph-token fusion, and Transformer causal LM |
+| `GraphCausalLM` | Persian language model with GNN encoder, gated graph-token fusion, and a modern decoder-only Transformer (RoPE, SwiGLU, RMSNorm, KV-cache generation) |
 | `RakhshaiGraphEncoder` | Graph-LM graph core with `gcn`, `graphsage`, `gat`, `rgcn`, and relation-aware encoding support |
 | `--graph-encoder none` | No-graph baseline for comparing against Graph-LM and measuring the true effect of GNN/fusion |
 | `LMTrainer` | LM-specific trainer with validation loss, perplexity, and complete checkpointing |

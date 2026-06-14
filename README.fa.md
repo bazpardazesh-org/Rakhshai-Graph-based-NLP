@@ -40,9 +40,10 @@ Persian Graph-LM.
 **Persian Graph-LM** هم دارد. در این مسیر، متن فارسی به توکن عددی تبدیل
 می‌شود، از همان corpus گراف هم‌رخدادی واژگان ساخته می‌شود، GNN روی گراف
 embedding گرافی تولید می‌کند، و سپس embedding توکن و embedding گراف با
-**Gated Graph-Token Fusion** درون یک Transformer causal language model ترکیب
-می‌شوند. خروجی این مدل `batch × sequence × vocab_size` است و برای پیش‌بینی
-توکن بعدی و تولید متن فارسی طراحی شده است.
+**Gated Graph-Token Fusion** درون یک Transformer decoder مدرن (موقعیت‌های RoPE،
+شبکهٔ پیش‌خور SwiGLU، نرمال‌سازی RMSNorm به‌صورت pre-norm، و KV cache هنگام
+تولید) ترکیب می‌شوند. خروجی این مدل `batch × sequence × vocab_size` است و برای
+پیش‌بینی توکن بعدی و تولید متن فارسی طراحی شده است.
 
 آزمایش اولیه روی یک corpus فارسی توسعه‌یافته perplexity پایین‌تری برای مسیر
 `Graph-LM / GCN + gated` نسبت به baseline بدون گراف گزارش کرده بود، اما آن
@@ -87,6 +88,14 @@ test و بررسی سلامت پیاده‌سازی مناسب است.
   فارسی، graph builder، GNN encoder، gated graph-token fusion، Transformer
   causal LM، trainer مخصوص LM، perplexity، checkpoint کامل شامل artifact گراف
   sparse و تولید متن را کنار هم قرار می‌دهد.
+- **Transformer decoder مدرن:** هستهٔ زبانی از موقعیت‌های چرخشی (RoPE)، شبکهٔ
+  پیش‌خور SwiGLU، نرمال‌سازی RMSNorm با residualهای pre-norm، و KV cache هنگام
+  تولید استفاده می‌کند. هر کدام را می‌توان به نسخهٔ کلاسیک برگرداند
+  (`position_encoding`، `ffn_type`، `norm_type` روی `GraphLMConfig`).
+- **توکن‌سازی فارسی‌آگاه:** علائم سجاوندی توکن مستقل می‌شوند (علائم فارسی دیگر به
+  کلمه نمی‌چسبند و علائم ASCII حذف نمی‌شوند)، جداکننده‌های اعشار/هزارگان فارسی
+  نرمال می‌شوند، فولد کردن همزه و هندل کردن اضافه قابل‌تنظیم‌اند، و `unigram` یک
+  توکنایزر Unigram LM واقعی است.
 - **Graph Reasoning Core برای گراف چندرابطه‌ای:** encoder گراف می‌تواند
   relation idهای گراف چندرابطه‌ای را با حالت‌های `bias`، `embedding` یا `rgcn` مصرف کند،
   از `RGCN` برای message passing رابطه‌محور استفاده کند، و به صورت اختیاری
@@ -145,6 +154,14 @@ Persian Causal LM
 این gate می‌تواند در چند سطح فعال شود: سطح توکن برای هر جایگاه دنباله، سطح
 جمله برای کنترل شدت کلی گراف در context، و سطح subgraph برای تزریق خلاصه‌ای از
 nodeهای غیرتوکنی مانند سند یا topic.
+
+> **نکتهٔ سازگاری checkpoint.** decoder مدرن شد (RoPE، SwiGLU، RMSNorm، pre-norm)
+> و توکنایزر `unigram` حالا یک Unigram LM واقعی است، ضمن اینکه پیش‌فرض
+> `ezafe_mode` اکنون `marker` است. checkpointهای ذخیره‌شده پیش از این تغییرات
+> همچنان لود می‌شوند (`from_pretrained` با `strict=False`) ولی وزن‌های
+> Transformerشان با چینش جدید نمی‌خواند، پس برای استفاده از معماری جدید باید از
+> نو آموزش بدهید. configهای توکنایزرِ ذخیره‌شده پیش از وجود `ezafe_mode` هنگام
+> لود رفتار قدیمی `collapse` را حفظ می‌کنند.
 
 ## نتیجهٔ اولیه Graph-LM
 
@@ -284,10 +301,10 @@ rgnn-cli generate \
 | `build_semantic_graph` | ساخت گراف معنایی از روابط واژگانی و شباهت embedding |
 | `build_semantic_graph_from_farsnet` | ساخت گراف معنایی از خروجی JSON/CSV/TSV مربوط به FarsNet |
 | `load_farsnet_relations` | خواندن روابط FarsNet از فایل و تبدیل آن به روابط قابل استفاده در گراف |
-| `PersianTokenizer` | tokenizer عددی مخصوص LM با پشتیبانی از نیم‌فاصله، تمیزسازی فارسی و نرمال‌سازی «ی/ي» و «ک/ك» |
+| `PersianTokenizer` | tokenizer عددی مخصوص LM با پشتیبانی از نیم‌فاصله، تمیزسازی فارسی، توکن مستقل برای علائم سجاوندی، نرمال‌سازی جداکننده‌های عدد و فولد قابل‌تنظیم همزه/اضافه، و حالت‌های `word`/`char_chunk`/`bpe`/`unigram` |
 | `LMDataset` | آماده‌سازی `input_ids` و `target_ids` برای پیش‌بینی توکن بعدی |
 | `build_graph_lm_graph` | ساخت گراف هم‌رخدادی واژگان از corpus برای Graph-LM |
-| `GraphCausalLM` | مدل زبانی فارسی با GNN encoder، gated graph-token fusion و Transformer causal LM |
+| `GraphCausalLM` | مدل زبانی فارسی با GNN encoder، gated graph-token fusion و یک Transformer decoder مدرن (RoPE، SwiGLU، RMSNorm، تولید با KV-cache) |
 | `RakhshaiGraphEncoder` | هستهٔ گرافی Graph-LM با پشتیبانی از `gcn`، `graphsage`، `gat`، `rgcn` و relation-aware encoding |
 | `--graph-encoder none` | baseline بدون گراف برای مقایسه با Graph-LM و سنجش اثر واقعی GNN/fusion |
 | `LMTrainer` | trainer مخصوص LM با validation loss، perplexity و checkpoint کامل |

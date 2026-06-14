@@ -26,15 +26,40 @@ DIACRITICS_PATTERN = re.compile(
 )
 ZERO_WIDTH_PATTERN = re.compile(r"[\u200b\u200d\ufeff]")
 
+# Always-applied orthographic unification (Arabic letter forms → Persian).
+# Folding of hamza-bearing letters (ئ, ؤ) and the ezafe marker (ۀ / ه + U+0654)
+# is handled separately so it can be disabled — see ``normalize_hamza`` and
+# ``ezafe_mode`` in :class:`PersianNormalizerConfig`.
 ARABIC_TO_PERSIAN_CHARS = str.maketrans(
     {
         "ي": "ی",
         "ى": "ی",
-        "ئ": "ی",
         "ك": "ک",
-        "ۀ": "ه",
         "ة": "ه",
+    }
+)
+
+# Hamza-bearing letters folded onto their plain Persian counterparts. Applied
+# only when ``normalize_hamza`` is enabled, since this merges orthographically
+# distinct spellings (e.g. مسائل → مسایل, مؤثر → موثر).
+HAMZA_TO_PERSIAN_CHARS = str.maketrans(
+    {
+        "ئ": "ی",
         "ؤ": "و",
+    }
+)
+
+HEH = "ه"  # ه
+PERSIAN_YE_CHAR = "ی"  # ی
+HAMZA_ABOVE = "ٔ"  # combining hamza above (ezafe written as ه + ٔ)
+HEH_WITH_YEH_ABOVE = "ۀ"  # ۀ (precomposed ezafe heh)
+
+# Persian numeric separators → ASCII equivalents so decimals and digit grouping
+# survive tokenisation instead of splitting numbers into pieces.
+NUMERIC_SEPARATORS = str.maketrans(
+    {
+        "٫": ".",  # ARABIC DECIMAL SEPARATOR ٫
+        "٬": ",",  # ARABIC THOUSANDS SEPARATOR ٬
     }
 )
 
@@ -73,6 +98,12 @@ class PersianNormalizerConfig:
     - ``preserve`` keeps Persian half-spaces and normalises surrounding spaces.
     - ``split`` replaces half-spaces with normal whitespace.
     - ``remove`` removes half-spaces without inserting whitespace.
+
+    ``ezafe_mode`` controls how the ezafe (ۀ / ه + U+0654) is handled:
+
+    - ``marker`` (default) rewrites it as ``ه‌ی`` so the grammatical ezafe
+      survives as an explicit, learnable token.
+    - ``collapse`` folds it onto a plain ``ه`` (loses the construction).
     """
 
     half_space: str = "preserve"
@@ -80,6 +111,8 @@ class PersianNormalizerConfig:
     remove_diacritics: bool = True
     remove_tatweel: bool = True
     unicode_normalization: str = "NFC"
+    normalize_hamza: bool = True
+    ezafe_mode: str = "marker"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -94,6 +127,11 @@ class PersianNormalizerConfig:
             remove_diacritics=bool(data.get("remove_diacritics", True)),
             remove_tatweel=bool(data.get("remove_tatweel", True)),
             unicode_normalization=str(data.get("unicode_normalization", "NFC")),
+            normalize_hamza=bool(data.get("normalize_hamza", True)),
+            # Configs serialised before this field existed were produced under
+            # the old collapse behaviour; fall back to it so already-saved
+            # tokenisers/models reproduce their original normalisation.
+            ezafe_mode=str(data.get("ezafe_mode", "collapse")),
         )
 
 
@@ -104,12 +142,34 @@ class PersianNormalizer:
         self.config = config or PersianNormalizerConfig()
         if self.config.half_space not in {"preserve", "split", "remove"}:
             raise ValueError("half_space must be one of: preserve, split, remove")
+        if self.config.ezafe_mode not in {"collapse", "marker"}:
+            raise ValueError("ezafe_mode must be one of: collapse, marker")
+
+    def _normalize_ezafe(self, text: str) -> str:
+        """Normalise the ezafe written as \u06c0 or as \u0647 + combining hamza (U+0654).
+
+        This must run *before* diacritic removal, otherwise the combining
+        hamza is stripped and the ezafe information is lost silently. In
+        ``marker`` mode the ezafe is rewritten as ``\u0647\u200c\u06cc`` so the grammatical
+        construction survives as an explicit token; ``collapse`` keeps the
+        historical behaviour of folding it onto a plain ``\u0647``.
+        """
+
+        marker = self.config.ezafe_mode == "marker"
+        replacement = f"{HEH}\u200c{PERSIAN_YE_CHAR}" if marker else HEH
+        text = text.replace(f"{HEH}{HAMZA_ABOVE}", replacement)
+        text = text.replace(HEH_WITH_YEH_ABOVE, replacement)
+        return text
 
     def normalize(self, text: str) -> str:
         text = unicodedata.normalize(self.config.unicode_normalization, text)
         text = text.translate(ARABIC_TO_PERSIAN_CHARS)
+        if self.config.normalize_hamza:
+            text = text.translate(HAMZA_TO_PERSIAN_CHARS)
+        text = self._normalize_ezafe(text)
         if self.config.normalize_digits:
             text = text.translate(ARABIC_PERSIAN_DIGITS)
+            text = text.translate(NUMERIC_SEPARATORS)
         if self.config.remove_tatweel:
             text = text.replace("\u0640", "")
         if self.config.remove_diacritics:
@@ -220,5 +280,7 @@ def normalize_persian_text(
             remove_diacritics=cfg.remove_diacritics,
             remove_tatweel=cfg.remove_tatweel,
             unicode_normalization=cfg.unicode_normalization,
+            normalize_hamza=cfg.normalize_hamza,
+            ezafe_mode=cfg.ezafe_mode,
         )
     return PersianNormalizer(cfg).normalize(text)

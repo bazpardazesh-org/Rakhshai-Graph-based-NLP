@@ -49,7 +49,11 @@ Stable V2 expectations:
 
 - Special ids are stable: `<pad>`, `<unk>`, `<bos>`, `<eos>`.
 - The tokenizer is fitted on the training corpus only.
-- `word` and the compact `subword` mode are supported.
+- Modes: `word`, `char_chunk` (formerly `subword`), `bpe`, and a genuine
+  `unigram` LM tokenizer.
+- Punctuation is tokenized separately, Persian numeric separators are
+  normalized, and hamza/ezafe folding is configurable. See
+  [Persian Tokenizer](persian_tokenizer.md).
 - Newly saved tokenizer artifacts use `tokenizer_version = 2`.
 
 ### Dataset
@@ -153,9 +157,29 @@ their graph contribution is disabled.
 
 Implementation: `rakhshai_graph_nlp/lm/model.py`
 
-`GraphCausalLM` is a causal Transformer language model. It uses token and
-position embeddings, applies optional graph fusion, runs Transformer encoder
-layers with a causal mask and predicts the next token with a tied LM head.
+`GraphCausalLM` is a decoder-only causal Transformer language model. It embeds
+tokens, applies optional graph fusion, runs a stack of pre-norm decoder layers
+and predicts the next token with a tied LM head.
+
+The decoder defaults to a modern architecture, each configurable on
+`GraphLMConfig`:
+
+- `position_encoding` (default `rope`): rotary position embeddings applied
+  inside attention; no learned position table and no fixed length ceiling. Set
+  to `learned` for the previous absolute position embeddings.
+- `ffn_type` (default `swiglu`): gated SiLU feed-forward. Set to `gelu` for the
+  classic two-layer block.
+- `norm_type` (default `rmsnorm`): RMSNorm. Set to `layernorm` for LayerNorm.
+- `rope_theta` (default `10000.0`): RoPE base frequency.
+
+Causality is enforced inside attention from absolute positions (so it composes
+with the KV cache); padding is handled with a key-padding mask.
+
+> **Checkpoint compatibility.** This decoder replaces the previous
+> `nn.TransformerEncoderLayer` stack, so checkpoints saved before the change no
+> longer match the parameter layout. `from_pretrained` loads them with
+> `strict=False` (it will not crash) but the transformer weights are effectively
+> reinitialised — retrain to use the new architecture.
 
 ### Trainer
 
@@ -186,6 +210,12 @@ Generation reloads the saved model, tokenizer, generation config and graph
 artifact when present. V2 checkpoints can also store graph memory so generation
 retrieves prompt-related nodes and subgraphs instead of always passing the full
 training graph. The no-graph baseline must generate without `graph.pt`.
+
+With RoPE (the default), a static graph and input-level fusion, generation uses
+a **KV cache**: the graph is encoded once per call and each step only encodes
+the new token while attending to cached keys/values, giving the same logits as a
+full re-encode. Dynamic graphs, learned positions, or per-layer fusion fall back
+to re-encoding the sliding-window context each step.
 
 ## Checkpoint Contract
 

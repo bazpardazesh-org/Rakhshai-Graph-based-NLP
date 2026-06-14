@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -12,10 +13,27 @@ from typing import Iterable
 from ..features.preprocessing import PersianNormalizerConfig, normalize_persian_text
 
 
+# Arabic/Persian *letter* code points only: the Arabic block (U+0600-06FF) also
+# contains punctuation (\u060C U+060C, \u061B U+061B, \u061F U+061F, \u06D4 U+06D4) and the digit /
+# separator signs (U+0660-066D). Those are carved out here so they no longer
+# glue onto adjacent words ("\u0627\u0633\u062A\u061F" had been a distinct token from "\u0627\u0633\u062A").
+_LETTER_CLASS = "\u0621-\u0655\u0670-\u06D3\u06D5-\u06FF"
+# Persian and ASCII punctuation captured as standalone tokens instead of being
+# silently dropped (ASCII ".!?:" used to vanish, losing sentence boundaries).
+_PUNCTUATION_CLASS = "\u060C\u061B\u061F\u061E\u06D4\u066A\u066B\u066C\u00AB\u00BB\u2026" + r".,:;!?()\[\]{}\"'/%\u2014\u2013-"
+
 TOKEN_PATTERN = re.compile(
-    r"[\u0600-\u06FF]+(?:\u200c[\u0600-\u06FF]+)*|[A-Za-z]+|\d+(?:[./]\d+)*",
+    rf"[{_LETTER_CLASS}]+(?:\u200c[{_LETTER_CLASS}]+)*"
+    r"|[A-Za-z]+"
+    r"|\d+(?:[.,/]\d+)*"
+    rf"|[{_PUNCTUATION_CLASS}]",
     flags=re.UNICODE,
 )
+
+# Closing punctuation that should hug the preceding token when decoding, and
+# opening punctuation that should hug the following token.
+_DECODE_CLOSE_PUNCT = re.compile(r"\s+([\u060C\u061B\u061F\u061E\u06D4\u066A\u2026\.,:;!?\)\]\}\u00BB%])")
+_DECODE_OPEN_PUNCT = re.compile(r"([\u00AB\(\[\{])\s+")
 
 COMPOUND_LIGHT_VERBS = (
     "کرد",
@@ -80,6 +98,11 @@ class PersianTokenizer:
     compound_verb_mode: str = "none"
     bpe_num_merges: int = 200
     bpe_merges: list[tuple[str, str]] = field(default_factory=list)
+    unigram_num_pieces: int = 300
+    unigram_max_piece_len: int = 6
+    unigram_em_iters: int = 4
+    unigram_pieces: dict[str, float] = field(default_factory=dict)
+    unigram_unk_logprob: float = 0.0
     pad_token: str = "<pad>"
     unk_token: str = "<unk>"
     bos_token: str = "<bos>"
@@ -153,11 +176,9 @@ class PersianTokenizer:
             return tokens
         if self.tokenizer_type != "unigram":
             raise ValueError("tokenizer_type must be one of: word, char_chunk, bpe, unigram")
-        # Lightweight fallback: BPE with fewer assumptions until a separate unigram
-        # trainer is needed.
         tokens: list[str] = []
         for word in words:
-            tokens.extend(self._word_to_bpe_pieces(word))
+            tokens.extend(self._word_to_unigram_pieces(word))
         return tokens
 
     def _word_tokens(self, text: str) -> list[str]:
@@ -253,10 +274,133 @@ class PersianTokenizer:
             vocab = new_vocab
         self.bpe_merges = merges
 
+    @staticmethod
+    def _logprobs_from_counts(counts: dict[str, float]) -> dict[str, float]:
+        total = sum(counts.values())
+        if total <= 0:
+            return {}
+        return {
+            piece: math.log(count / total)
+            for piece, count in counts.items()
+            if count > 0
+        }
+
+    @staticmethod
+    def _renormalize_logprobs(logprobs: dict[str, float]) -> dict[str, float]:
+        weights = {piece: math.exp(lp) for piece, lp in logprobs.items()}
+        total = sum(weights.values())
+        if total <= 0:
+            return dict(logprobs)
+        return {piece: math.log(weight / total) for piece, weight in weights.items()}
+
+    def _unigram_segment(self, word: str) -> list[str]:
+        """Viterbi: maximum log-probability segmentation under the unigram LM."""
+
+        if not word:
+            return []
+        n = len(word)
+        neg_inf = float("-inf")
+        best = [neg_inf] * (n + 1)
+        best[0] = 0.0
+        back: list[tuple[int, str]] = [(-1, "")] * (n + 1)
+        max_len = max(1, self.unigram_max_piece_len)
+        for i in range(1, n + 1):
+            for j in range(max(0, i - max_len), i):
+                piece = word[j:i]
+                logprob = self.unigram_pieces.get(piece)
+                if logprob is None:
+                    if i - j == 1:  # single-character fallback keeps full coverage
+                        logprob = self.unigram_unk_logprob
+                    else:
+                        continue
+                score = best[j] + logprob
+                if score > best[i]:
+                    best[i] = score
+                    back[i] = (j, piece)
+        if best[n] == neg_inf:
+            return [word]
+        pieces: list[str] = []
+        i = n
+        while i > 0:
+            j, piece = back[i]
+            if j < 0:
+                return [word]
+            pieces.append(piece)
+            i = j
+        pieces.reverse()
+        return pieces
+
+    def _word_to_unigram_pieces(self, word: str) -> list[str]:
+        pieces = self._unigram_segment(word)
+        if not pieces:
+            return [word]
+        return [pieces[0], *["##" + piece for piece in pieces[1:]]]
+
+    def _train_unigram(self, words: Iterable[str]) -> None:
+        """Train a unigram LM tokenizer with hard-EM (Kudo-style, simplified).
+
+        Seeds a candidate vocabulary of substrings, then alternates Viterbi
+        segmentation (E-step) with maximum-likelihood re-estimation and pruning
+        (M-step) down to ``unigram_num_pieces``, always keeping every single
+        character so any word stays segmentable.
+        """
+
+        word_freq: Counter[str] = Counter(word for word in words if word)
+        if not word_freq:
+            self.unigram_pieces = {}
+            self.unigram_unk_logprob = 0.0
+            return
+        chars = {ch for word in word_freq for ch in word}
+        max_len = max(1, self.unigram_max_piece_len)
+
+        sub_freq: Counter[str] = Counter()
+        for word, freq in word_freq.items():
+            length = len(word)
+            for start in range(length):
+                for end in range(start + 1, min(length, start + max_len) + 1):
+                    sub_freq[word[start:end]] += freq
+
+        target = max(self.unigram_num_pieces, len(chars))
+        ranked = sorted(
+            sub_freq.items(),
+            key=lambda kv: (kv[1] * len(kv[0]), kv[0]),
+            reverse=True,
+        )
+        seed: dict[str, float] = dict(ranked[: max(target * 4, len(chars))])
+        for ch in chars:  # force-keep full single-character coverage
+            seed.setdefault(ch, float(sub_freq[ch]))
+        probs = self._logprobs_from_counts(seed)
+
+        for _ in range(max(1, self.unigram_em_iters)):
+            self.unigram_pieces = probs
+            self.unigram_unk_logprob = min(probs.values()) - 10.0
+            counts: Counter[str] = Counter()
+            for word, freq in word_freq.items():
+                for piece in self._unigram_segment(word):
+                    counts[piece] += freq
+            for ch in chars:
+                counts[ch] += 1
+            probs = self._logprobs_from_counts(counts)
+            if len(probs) > target:
+                ordered = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
+                kept = {
+                    piece: lp
+                    for index, (piece, lp) in enumerate(ordered)
+                    if index < target or len(piece) == 1
+                }
+                probs = self._renormalize_logprobs(kept)
+
+        self.unigram_pieces = probs
+        self.unigram_unk_logprob = (min(probs.values()) - 10.0) if probs else 0.0
+
     def fit(self, texts: Iterable[str]) -> "PersianTokenizer":
         texts = list(texts)
-        if self.tokenizer_type in {"bpe", "unigram"}:
+        if self.tokenizer_type == "bpe":
             self._train_bpe(word for text in texts for word in self._word_tokens(text))
+        elif self.tokenizer_type == "unigram":
+            self._train_unigram(
+                word for text in texts for word in self._word_tokens(text)
+            )
 
         counts: Counter[str] = Counter()
         for text in texts:
@@ -299,7 +443,12 @@ class PersianTokenizer:
                 else:
                     words.append(token[2:] if token.startswith("##") else token)
             tokens = words
-        return " ".join(tokens).replace(" \u200c ", "\u200c")
+        text = " ".join(tokens).replace(" \u200c ", "\u200c")
+        # Punctuation is now its own token; re-attach it so decoded text reads
+        # naturally ("\u0633\u0644\u0627\u0645 \u060c" -> "\u0633\u0644\u0627\u0645\u060c", "( \u0645\u062a\u0646" -> "(\u0645\u062a\u0646").
+        text = _DECODE_CLOSE_PUNCT.sub(r"\1", text)
+        text = _DECODE_OPEN_PUNCT.sub(r"\1", text)
+        return text
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -315,6 +464,11 @@ class PersianTokenizer:
             "compound_verb_mode": self.compound_verb_mode,
             "bpe_num_merges": self.bpe_num_merges,
             "bpe_merges": [list(pair) for pair in self.bpe_merges],
+            "unigram_num_pieces": self.unigram_num_pieces,
+            "unigram_max_piece_len": self.unigram_max_piece_len,
+            "unigram_em_iters": self.unigram_em_iters,
+            "unigram_pieces": self.unigram_pieces,
+            "unigram_unk_logprob": self.unigram_unk_logprob,
             "special_tokens": {
                 "pad_token": self.pad_token,
                 "unk_token": self.unk_token,
@@ -355,6 +509,14 @@ class PersianTokenizer:
             compound_verb_mode=str(data.get("compound_verb_mode", "none")),
             bpe_num_merges=int(data.get("bpe_num_merges", 200)),
             bpe_merges=bpe_merges,
+            unigram_num_pieces=int(data.get("unigram_num_pieces", 300)),
+            unigram_max_piece_len=int(data.get("unigram_max_piece_len", 6)),
+            unigram_em_iters=int(data.get("unigram_em_iters", 4)),
+            unigram_pieces={
+                str(piece): float(logprob)
+                for piece, logprob in dict(data.get("unigram_pieces", {})).items()
+            },
+            unigram_unk_logprob=float(data.get("unigram_unk_logprob", 0.0)),
             pad_token=str(special.get("pad_token", "<pad>")),
             unk_token=str(special.get("unk_token", "<unk>")),
             bos_token=str(special.get("bos_token", "<bos>")),
