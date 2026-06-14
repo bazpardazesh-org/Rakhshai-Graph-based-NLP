@@ -2,7 +2,7 @@
 
 from importlib import import_module
 
-__version__ = "2.0.0"
+__version__ = "2.0.2"
 
 from .features.tokenize import split_sentences, tokenize
 from .graphs import sparse as graphs_sparse
