@@ -148,8 +148,8 @@ documents across `politics`, `sports` and `art`, so it is intended for smoke
 testing the full graph-classification pipeline rather than making broad model
 quality claims.
 
-Example CPU runs with `seed=0`, `epochs=50`, `hidden_dim=8`,
-`learning_rate=0.01` and `dropout=0.2`:
+Latest CPU runs from 2026-06-14 with `seed=0`, `epochs=50`,
+`hidden_dim=8`, `learning_rate=0.01` and `dropout=0.2`:
 
 | Model | Validation accuracy | Test accuracy | Test macro-F1 |
 | --- | ---: | ---: | ---: |

@@ -179,30 +179,21 @@ as documents or topics.
 > Tokenizers without `<mask>` load with it mapped to `<unk>`; tokenizer configs
 > saved before `ezafe_mode` existed keep the old `collapse` behaviour on load.
 
-## Initial Graph-LM Result
+## Latest Graph-LM Smoke Result
 
-To validate the new path, an expanded Persian corpus was created and two models
-were compared under similar conditions: the graph model `Graph-LM / GCN + gated`
-and a no-graph baseline. The original numbers published here (perplexity
-1344.77 vs 1634.99, about 18% in favour of the graph model) were produced
-before two implementation fixes: embedding initialization with a small std, and
-perplexity computed from the next-token cross-entropy only instead of the total
-multi-task loss. Rerunning the identical experiment (same corpus,
-hyperparameters, and seeds 0-2) with the fixed code gives:
+After clearing the old `runs` artifacts, the Graph-LM path was rechecked on
+2026-06-14 with `data/expanded_persian_lm.txt`, `seed=0`, `epochs=3`,
+`d_model=64`, `n_layers=1`, `block_size=64`, and `device=cpu`. These are small
+smoke runs for implementation health, not model-quality claims.
 
-| Model | best perplexity (mean ± std, 3 seeds) |
-| --- | ---: |
-| `Baseline / no graph` | 121.7 ± 4.6 |
-| `Graph-LM / GCN + gated`, original fusion | 179.2 ± 18.5 |
-| `Graph-LM / GCN + gated`, zero-init gating | 120.4 ± 24.4 |
+| Model | best validation loss | best perplexity | Output path |
+| --- | ---: | ---: | --- |
+| `Baseline / no graph` | 6.023 | 412.786 | `runs/graph-lm-smoke/baseline-s0/metrics.json` |
+| `Graph-LM / GCN + gated` | 5.985 | 397.509 | `runs/graph-lm-smoke/graph-gcn-s0/metrics.json` |
 
-With the fixed code, the original input-replacing fusion actively hurt the
-language model; the earlier 18% advantage was an artifact of the implementation
-issues, not of graph fusion. After redesigning the fusion with zero-initialized
-gating, the graph model reaches the same perplexity as the no-graph baseline.
-The learned gate (`tanh(alpha)` reported in `metrics.json` as
-`token_alpha_tanh`) stays close to zero on this corpus — the model finds little
-useful graph signal in 71 sentences, which is expected.
+The previous numbers in this section were from older artifacts that have now
+been removed from `runs`. The current smoke results and the unit-test report are
+summarized in `runs/latest/RESULTS.md`.
 
 **Scope of this benchmark.** These numbers are a provisional, small-data
 observation. No conclusion about the value of graph fusion for Persian language
@@ -455,6 +446,13 @@ python -m pip install -e ".[fa]"    # Faiss support
 python -m pip install -e ".[docs]"  # documentation build tools
 python -m pip install -e ".[dev]"   # testing, linting, build, and publishing tools
 ```
+
+> **Accuracy note:** Installing Stanza is strongly recommended when you use
+> dependency graphs or the default Graph-LM multi-relation graph, which includes
+> `dependency`. If Stanza is not installed, the `auto` linguistic backend falls
+> back to a simpler heuristic backend. The project will still run, but the
+> quality of `dependency`/lemma relations, and therefore the accuracy of models
+> that rely on those linguistic relations, may be lower.
 
 ### Running Tests
 
@@ -1042,15 +1040,12 @@ cities, politics, education, economy, sports, art, and the Graph-LM architecture
 itself, so political, weather, education, and graph-modeling lexical
 relationships are visible in the co-occurrence graph.
 
-Comparison with the fixed implementation (seeds 0-2; the pre-fix artifacts are
-kept in `runs/compare-graph-lm` and `runs/compare-baseline-lm` for reference,
-but their metrics are not valid):
+Latest smoke comparison after clearing old artifacts on 2026-06-14:
 
-| Model | best perplexity (mean ± std) | Output path |
-| --- | ---: | --- |
-| `Baseline / no graph` | 121.7 ± 4.6 | `runs/compare-fixed/baseline-s*` |
-| `Graph-LM / GCN + gated`, original fusion | 179.2 ± 18.5 | `runs/compare-fixed/graph-lm-s*` |
-| `Graph-LM / GCN + gated`, zero-init gating | 120.4 ± 24.4 | `runs/compare-fixed/graph-lm-zeroinit-s*` |
+| Model | best validation loss | best perplexity | Output path |
+| --- | ---: | ---: | --- |
+| `Baseline / no graph` | 6.023 | 412.786 | `runs/graph-lm-smoke/baseline-s0/metrics.json` |
+| `Graph-LM / GCN + gated` | 5.985 | 397.509 | `runs/graph-lm-smoke/graph-gcn-s0/metrics.json` |
 
 This benchmark is a smoke test of the implementation, not an evaluation of
 model quality; see "Scope of this benchmark" above.
@@ -1073,7 +1068,7 @@ The dataset contains 24 short news texts in three classes, `politics`, `sports`,
 and `art`. It is useful for smoke testing and comparing settings, not for making
 final model-quality claims.
 
-Reproducible CPU runs with `seed=0`:
+Latest reproducible CPU runs from 2026-06-14 with `seed=0`:
 
 | Model | validation accuracy | test accuracy | test macro-F1 | Report path |
 | --- | ---: | ---: | ---: | --- |
