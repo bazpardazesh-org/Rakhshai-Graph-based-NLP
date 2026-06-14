@@ -47,14 +47,17 @@ split, encodes text to token ids and saves/loads `tokenizer.json`.
 
 Stable V2 expectations:
 
-- Special ids are stable: `<pad>`, `<unk>`, `<bos>`, `<eos>`.
+- Special ids are stable: `<pad>` (0), `<unk>` (1), `<bos>` (2), `<eos>` (3) and
+  `<mask>` (4). `<mask>` backs the masked-token objective; tokenizers saved
+  before it load with `<mask>` mapped onto `<unk>`.
 - The tokenizer is fitted on the training corpus only.
 - Modes: `word`, `char_chunk` (formerly `subword`), `bpe`, and a genuine
-  `unigram` LM tokenizer.
+  `unigram` LM tokenizer. `unigram` is the operational default for `lm-train`
+  (lowest Persian OOV); its size is set by `--unigram-num-pieces`.
 - Punctuation is tokenized separately, Persian numeric separators are
   normalized, and hamza/ezafe folding is configurable. See
   [Persian Tokenizer](persian_tokenizer.md).
-- Newly saved tokenizer artifacts use `tokenizer_version = 2`.
+- Newly saved tokenizer artifacts use `tokenizer_version = 3`.
 
 ### Dataset
 
@@ -74,16 +77,17 @@ conventions.
 Implementation: `rakhshai_graph_nlp/lm/graph_builder.py`
 
 `build_graph_lm_graph` builds the token graph from the training split. The V2
-default graph is a multi-relation graph with co-occurrence, PMI, stem, subword,
-word-document and topic-document relations. Dependency and semantic-similarity
-relations remain opt-in because they can be slower or more sensitive to the
-corpus and tokenizer choice.
+default graph is a multi-relation graph with co-occurrence, PMI, dependency,
+stem, subword, word-document and topic-document relations. The
+semantic-similarity relation stays opt-in because it scales with the square of
+the graph vocabulary. An edge belonging to several relations is kept as parallel
+edges (one `edge_type` per relation) instead of collapsing to a single id.
 
 Stable V2 default graph:
 
 ```text
-graph_relations = cooccurrence pmi stem subword word_document topic_document
-graph_weighting = ppmi
+graph_relations = cooccurrence pmi dependency stem subword word_document topic_document
+graph_weighting = distance
 graph_scope = document
 dynamic_graph = false
 ```
@@ -114,9 +118,16 @@ representations. Current supported encoders are:
 `graph_encoder = none` disables this component and defines the no-graph
 baseline.
 
-V2 can consume relation IDs through graph relation modes such as `bias`,
-`embedding` and `rgcn`, and can optionally use node importance and subgraph
-pooling.
+V2 can consume relation IDs through graph relation modes `bias`, `embedding` and
+`rgcn`; `embedding` (a learned vector per relation) is the operational default
+because it best exploits the multi-relational parallel-edge graph. The encoder
+can also use node importance and subgraph pooling.
+
+Every graph node receives a learned **node-type embedding** (token, document,
+topic, sentence, …) as its initial feature, so non-token nodes no longer start
+from all-zero vectors; token nodes add their token embedding on top. Disable it
+with `--no-graph-node-type-embedding`. See
+[Graph Reasoning Core](graph_reasoning_core.md).
 
 ### Fusion Layer
 
@@ -188,12 +199,21 @@ Implementation: `rakhshai_graph_nlp/lm/trainer.py`
 `LMTrainer` owns the training loop, validation loop, best-checkpoint saving,
 loss history and perplexity reporting.
 
+Best-checkpoint selection and early stopping are driven by
+`--checkpoint-metric`, which defaults to `next_token`: the saved model is the
+best *language model* (lowest next-token loss / perplexity), not the lowest
+weighted sum of the auxiliary multi-task terms. Set `--checkpoint-metric total`
+to restore selection on the full multi-task `validation_loss`. The masked-token
+objective uses the dedicated `<mask>` id (`config.mask_token_id`) rather than
+`<unk>`.
+
 Stable V2 metrics:
 
 - `train_loss`
-- `validation_loss` (total multi-task loss; used for checkpoint selection and
-  early stopping)
-- `validation_next_token_loss` (next-token cross-entropy only)
+- `validation_loss` (total multi-task loss; selection signal only when
+  `--checkpoint-metric total`)
+- `validation_next_token_loss` (next-token cross-entropy only; default selection
+  and early-stopping signal)
 - `perplexity` (computed from `validation_next_token_loss`, not the total
   multi-task loss)
 - `best_validation_loss`
@@ -289,8 +309,9 @@ This is the default graph-enabled V2 comparison point.
 ## V2 Release Surface
 
 - Package metadata reports `2.0.0`.
-- The default Graph-LM graph is multi-relation.
-- The tokenizer writes `tokenizer_version = 2`.
+- The default Graph-LM graph is multi-relation (includes `dependency`) with
+  parallel edges per relation.
+- The tokenizer writes `tokenizer_version = 3` and reserves a `<mask>` token.
 - Relation-aware graph reasoning and adaptive graph-text fusion are documented.
 - Low-data training controls are part of the supported Graph-LM path.
 - Generation can use checkpointed graph memory when available.

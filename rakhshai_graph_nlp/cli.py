@@ -228,10 +228,13 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         relation_weights=_parse_relation_weights(args.relation_weights),
         semantic_similarity_threshold=args.semantic_similarity_threshold,
         semantic_top_k=args.semantic_top_k,
+        semantic_method=args.semantic_method,
+        linguistic_backend=args.linguistic_backend,
         topic_top_k=args.topic_top_k,
         graph_relation_mode=args.graph_relation_mode,
         graph_pooling=args.graph_pooling,
         graph_node_importance=args.graph_node_importance,
+        graph_node_type_embedding=args.graph_node_type_embedding,
         fusion_levels=args.fusion_levels,
         graph_fusion_scale=args.graph_fusion_scale,
         graph_fusion_dropout=args.graph_fusion_dropout,
@@ -256,6 +259,7 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         curriculum_learning=not args.no_curriculum,
         early_stopping_patience=args.early_stopping_patience,
         early_stopping_min_delta=args.early_stopping_min_delta,
+        checkpoint_metric=args.checkpoint_metric,
         max_grad_norm=args.max_grad_norm,
         dynamic_graph=args.dynamic_graph,
         graph_build_batch_size=args.graph_build_batch_size,
@@ -270,6 +274,7 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         tokenizer_morph_splitting=args.tokenizer_morph_splitting,
         tokenizer_compound_verb_mode=args.tokenizer_compound_verb_mode,
         tokenizer_bpe_merges=args.tokenizer_bpe_merges,
+        tokenizer_unigram_num_pieces=args.unigram_num_pieces,
         device=device,
         seed=args.seed,
     )
@@ -290,6 +295,7 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
             graph_relation_mode=args.graph_relation_mode,
             graph_pooling=args.graph_pooling,
             graph_node_importance=args.graph_node_importance,
+            graph_node_type_embedding=args.graph_node_type_embedding,
             fusion=args.fusion,
             fusion_layers=args.fusion_layers,
             fusion_levels=args.fusion_levels,
@@ -381,6 +387,8 @@ def _run_generate(args: argparse.Namespace) -> str:
                 graph_config.get("semantic_similarity_threshold", 0.6)
             ),
             semantic_top_k=graph_config.get("semantic_top_k"),  # type: ignore[arg-type]
+            semantic_method=str(graph_config.get("semantic_method", "distributional")),
+            linguistic_backend=str(graph_config.get("linguistic_backend", "auto")),
             topic_top_k=int(graph_config.get("topic_top_k", 8)),
         )
         graph_data = graph.to_pyg_data().to(device)
@@ -648,6 +656,15 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         help="Minimum validation-loss improvement counted by early stopping",
     )
     train.add_argument(
+        "--checkpoint-metric",
+        choices=["next_token", "total"],
+        default="next_token",
+        help=(
+            "Validation signal for best-checkpoint selection and early stopping: "
+            "'next_token' (perplexity, recommended) or 'total' multi-task loss"
+        ),
+    )
+    train.add_argument(
         "--max-grad-norm",
         type=float,
         default=1.0,
@@ -663,8 +680,11 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     train.add_argument(
         "--graph-relation-mode",
         choices=["bias", "embedding", "rgcn"],
-        default="bias",
-        help="How the graph encoder consumes edge_type relation ids",
+        default="embedding",
+        help=(
+            "How the graph encoder consumes edge_type relation ids; 'embedding' "
+            "learns a per-relation vector and best uses the multi-relation graph"
+        ),
     )
     train.add_argument(
         "--graph-pooling",
@@ -676,6 +696,12 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         "--graph-node-importance",
         action="store_true",
         help="Enable node-importance scoring inside the graph encoder",
+    )
+    train.add_argument(
+        "--no-graph-node-type-embedding",
+        dest="graph_node_type_embedding",
+        action="store_false",
+        help="Disable learned per-node-type embeddings for non-token graph nodes",
     )
     train.add_argument("--epochs", type=int, default=3)
     train.add_argument("--batch-size", type=int, default=8)
@@ -731,6 +757,25 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--semantic-similarity-threshold", type=float, default=0.6)
     train.add_argument("--semantic-top-k", type=int, default=4)
+    train.add_argument(
+        "--semantic-method",
+        choices=["distributional", "orthographic"],
+        default="distributional",
+        help=(
+            "semantic_similarity relation: 'distributional' (PPMI-cosine, real "
+            "semantics) or 'orthographic' (character-overlap heuristic)"
+        ),
+    )
+    train.add_argument(
+        "--linguistic-backend",
+        choices=["auto", "stanza", "heuristic"],
+        default="auto",
+        help=(
+            "Backend for dependency/lemma relations: 'auto' uses Stanza when "
+            "installed and falls back to heuristics, 'stanza' forces it, "
+            "'heuristic' disables it"
+        ),
+    )
     train.add_argument("--topic-top-k", type=int, default=8)
     train.add_argument("--dynamic-graph", action="store_true")
     train.add_argument(
@@ -773,7 +818,8 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     train.add_argument(
         "--tokenizer-type",
         choices=["word", "subword", "char_chunk", "bpe", "unigram"],
-        default="word",
+        default="unigram",
+        help="Subword tokenizer; 'unigram' is recommended for Persian (low OOV)",
     )
     train.add_argument(
         "--tokenizer-half-space",
@@ -787,6 +833,12 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         default="none",
     )
     train.add_argument("--tokenizer-bpe-merges", type=int, default=200)
+    train.add_argument(
+        "--unigram-num-pieces",
+        type=int,
+        default=8000,
+        help="Target subword vocabulary size for the unigram tokenizer",
+    )
     train.add_argument("--seed", type=int, default=0)
     train.add_argument(
         "--device",

@@ -107,7 +107,8 @@ class PersianTokenizer:
     unk_token: str = "<unk>"
     bos_token: str = "<bos>"
     eos_token: str = "<eos>"
-    tokenizer_version: int = 2
+    mask_token: str = "<mask>"
+    tokenizer_version: int = 3
 
     def __post_init__(self) -> None:
         if not isinstance(self.normalizer_config, PersianNormalizerConfig):
@@ -124,6 +125,7 @@ class PersianTokenizer:
                 self.unk_token: 1,
                 self.bos_token: 2,
                 self.eos_token: 3,
+                self.mask_token: 4,
             }
         self.id_to_token = {idx: token for token, idx in self.token_to_id.items()}
 
@@ -142,6 +144,11 @@ class PersianTokenizer:
     @property
     def eos_id(self) -> int:
         return self.token_to_id[self.eos_token]
+
+    @property
+    def mask_id(self) -> int:
+        # Falls back to <unk> for tokenizers saved before <mask> existed.
+        return self.token_to_id.get(self.mask_token, self.unk_id)
 
     @property
     def vocab_size(self) -> int:
@@ -406,7 +413,13 @@ class PersianTokenizer:
         for text in texts:
             counts.update(self.tokenize(text))
 
-        special_tokens = [self.pad_token, self.unk_token, self.bos_token, self.eos_token]
+        special_tokens = [
+            self.pad_token,
+            self.unk_token,
+            self.bos_token,
+            self.eos_token,
+            self.mask_token,
+        ]
         vocab_items = [
             token
             for token, count in counts.most_common()
@@ -428,7 +441,13 @@ class PersianTokenizer:
         return ids
 
     def decode(self, ids: Iterable[int], *, skip_special_tokens: bool = True) -> str:
-        special = {self.pad_token, self.unk_token, self.bos_token, self.eos_token}
+        special = {
+            self.pad_token,
+            self.unk_token,
+            self.bos_token,
+            self.eos_token,
+            self.mask_token,
+        }
         tokens: list[str] = []
         for idx in ids:
             token = self.id_to_token.get(int(idx), self.unk_token)
@@ -474,6 +493,7 @@ class PersianTokenizer:
                 "unk_token": self.unk_token,
                 "bos_token": self.bos_token,
                 "eos_token": self.eos_token,
+                "mask_token": self.mask_token,
             },
         }
 
@@ -521,6 +541,7 @@ class PersianTokenizer:
             unk_token=str(special.get("unk_token", "<unk>")),
             bos_token=str(special.get("bos_token", "<bos>")),
             eos_token=str(special.get("eos_token", "<eos>")),
+            mask_token=str(special.get("mask_token", "<mask>")),
             tokenizer_version=int(data.get("tokenizer_version", 1)),
         )
 

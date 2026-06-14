@@ -177,7 +177,10 @@ def _masked_token_loss(
         first = valid.nonzero(as_tuple=False)[0]
         selected[first[0], first[1]] = True
     masked_input = input_ids.clone()
-    masked_input[selected] = 1
+    # Use the dedicated <mask> id when the tokenizer provides one; fall back to
+    # <unk> (id 1) for models trained before a real mask token existed.
+    mask_id = model.config.mask_token_id
+    masked_input[selected] = 1 if mask_id is None else mask_id
     masked_labels = torch.full_like(labels, -100)
     masked_labels[selected] = input_ids[selected]
     masked_graph_embeddings = None

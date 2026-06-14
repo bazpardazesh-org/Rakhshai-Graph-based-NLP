@@ -5,15 +5,18 @@ graph to a configurable multi-relation Persian graph.
 
 ## Default
 
-The default Graph-LM graph is now the Phase 3 multi-relation preset:
+The default Graph-LM graph is a multi-relation preset that now includes real
+syntactic structure:
 
 ```text
-cooccurrence pmi stem subword word_document topic_document
+cooccurrence pmi dependency stem subword word_document topic_document
 ```
 
-This is intentionally stronger than the old v1 graph while avoiding the
-heavier optional relations. `dependency` and `semantic_similarity` remain
-opt-in because they can be slower or more sensitive to corpus/tokenizer choice.
+`dependency` uses a real Persian parser when available (see
+[Linguistic backend and semantic method](#linguistic-backend-and-semantic-method))
+and falls back to a heuristic otherwise, so it is safe to keep enabled by
+default. `semantic_similarity` stays opt-in because computing it scales with the
+square of the graph vocabulary.
 
 ```bash
 rgnn-cli lm-train \
@@ -35,10 +38,14 @@ rgnn-cli lm-train \
 
 - `cooccurrence`: weighted token co-occurrence.
 - `pmi` and `ppmi`: association edges computed from the same windows.
-- `dependency`: a lightweight Persian dependency-style proximity relation.
-- `stem`: edges between tokens sharing a light Persian stem.
+- `dependency`: real Persian syntactic dependency edges (head ↔ dependent) from
+  Stanza when installed, with a light-verb proximity heuristic as fallback.
+- `stem`: edges between tokens sharing a light Persian stem, enriched with real
+  Stanza lemma groups when the backend is available.
 - `subword`: edges between related subword pieces.
-- `semantic_similarity`: character n-gram similarity between Persian token forms.
+- `semantic_similarity`: distributional similarity by default (PPMI-weighted
+  co-occurrence context vectors compared with cosine); pass
+  `--semantic-method orthographic` for the older character n-gram overlap.
 - `word_document`: document context nodes linked to token nodes.
 - `topic_document`: lightweight topic nodes linked to documents and tokens.
 
@@ -62,17 +69,51 @@ also records:
 - `edge_types`
 - `relation_edge_counts`
 - `node_type_counts`
+- `semantic_method` (`distributional` or `orthographic`)
+- `linguistic_backend` (`auto`, `stanza` or `heuristic`)
+- `dependency_backend` (the backend actually used: `stanza` or `heuristic`)
 
-`graph.pt` stores `edge_type` alongside `edge_index` and `edge_weight`, so the
-existing GCN, GraphSAGE and GAT encoders can consume relation IDs through the
-current edge-type bias path. More expressive relation-aware message passing is
-left to Phase 4.
+`graph.pt` stores `edge_type` alongside `edge_index` and `edge_weight`. Edges are
+now **multi-relational parallel edges**: when a node pair participates in several
+relations (for example cooccurrence *and* stem *and* semantic) each relation is
+emitted as its own column with its own `edge_type` and weight, instead of the
+last relation overwriting a single id. Relation-aware encoders (`bias`,
+`embedding`, `rgcn`) therefore see every relation an edge belongs to — see
+[Graph Reasoning Core](graph_reasoning_core.md).
+
+## Linguistic backend and semantic method
+
+The `dependency` and `stem` relations can use a real Persian NLP backend:
+
+- `--linguistic-backend auto` (default): use Stanza when it is installed and the
+  Persian model is downloaded, otherwise fall back to the heuristics.
+- `--linguistic-backend stanza`: prefer Stanza (still falls back if it cannot be
+  loaded).
+- `--linguistic-backend heuristic`: never call Stanza.
+
+The `semantic_similarity` relation chooses its scoring with `--semantic-method`:
+
+- `distributional` (default): PPMI-weighted co-occurrence context vectors
+  compared with cosine — genuine count-based semantics, pure NumPy, no model
+  download.
+- `orthographic`: the older character n-gram (Jaccard) overlap.
+
+To enable the real syntactic/lemma backend:
+
+```bash
+pip install stanza
+python -m stanza.download fa
+```
+
+Without Stanza the dependency/stem relations still work via the heuristics, and
+`graph_config.json` records `dependency_backend = heuristic` so runs stay
+reproducible and transparent.
 
 ## Presets
 
 Useful explicit presets:
 
-- `default`: `cooccurrence pmi stem subword word_document topic_document`
+- `default`: `cooccurrence pmi dependency stem subword word_document topic_document`
 - `simple-v1`: `cooccurrence`
 - `lexical`: `cooccurrence pmi stem subword`
 - `document`: `cooccurrence pmi word_document topic_document`

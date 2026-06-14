@@ -36,6 +36,11 @@ class GraphLMConfig:
     graph_relation_mode: str = "bias"
     graph_pooling: str = "none"
     graph_node_importance: bool = False
+    # Give every graph node (document/topic/sentence/context, not just tokens) a
+    # learned type vector so non-token nodes no longer start from all-zero
+    # features and only acquire meaning through message passing.
+    graph_node_type_embedding: bool = True
+    graph_num_node_types: int = 8
     fusion: str = "gated"
     fusion_layers: str = "input"
     fusion_levels: str = "token"
@@ -43,6 +48,7 @@ class GraphLMConfig:
     graph_fusion_dropout: float = 0.0
     graph_edge_types: int = 1
     pad_token_id: int = 0
+    mask_token_id: int | None = None
 
 
 @dataclass
@@ -697,6 +703,11 @@ class GraphCausalLM(nn.Module):
             if config.graph_encoder.lower() == "none"
             else RakhshaiGraphEncoder(config)
         )
+        self.node_type_embedding = (
+            nn.Embedding(max(1, config.graph_num_node_types), config.d_model)
+            if self.graph_encoder is not None and config.graph_node_type_embedding
+            else None
+        )
         self.fusion = GraphTokenFusion(config)
         self.transformer_layers = nn.ModuleList(
             [RakhshaiDecoderLayer(config) for _ in range(config.n_layers)]
@@ -719,6 +730,31 @@ class GraphCausalLM(nn.Module):
         with torch.no_grad():
             self.token_embedding.weight[config.pad_token_id].zero_()
 
+    def _node_input_features(
+        self,
+        graph_data: Data,
+        token_node_ids: torch.Tensor,
+        valid: torch.Tensor,
+    ) -> torch.Tensor:
+        """Initial GNN node features: a learned node-type vector for every node
+        (so document/topic/sentence nodes are not zero) with token embeddings
+        added on top of token nodes."""
+
+        token_table = self.token_embedding.weight
+        node_type_id = getattr(graph_data, "node_type_id", None)
+        if self.node_type_embedding is not None and node_type_id is not None:
+            node_type_id = node_type_id.to(token_table.device).long().clamp(
+                0, self.node_type_embedding.num_embeddings - 1
+            )
+            node_features = self.node_type_embedding(node_type_id)
+        else:
+            node_features = token_table.new_zeros(
+                (graph_data.num_nodes, token_table.size(1))
+            )
+        return node_features.index_add(
+            0, token_node_ids[valid], token_table[valid]
+        )
+
     def _rope_table(
         self, seq_len: int, device: torch.device, *, offset: int = 0
     ) -> tuple[torch.Tensor, torch.Tensor] | None:
@@ -738,8 +774,7 @@ class GraphCausalLM(nn.Module):
         valid = token_node_ids >= 0
         if not valid.any():
             return torch.zeros_like(token_table)
-        node_features = token_table.new_zeros((graph_data.num_nodes, token_table.size(1)))
-        node_features[token_node_ids[valid]] = token_table[valid]
+        node_features = self._node_input_features(graph_data, token_node_ids, valid)
         node_embeddings = self.graph_encoder(node_features, graph_data)
         graph_table = torch.zeros_like(token_table)
         graph_table[valid] = node_embeddings[token_node_ids[valid]]
@@ -757,8 +792,7 @@ class GraphCausalLM(nn.Module):
         valid = token_node_ids >= 0
         if not valid.any():
             return None
-        node_features = token_table.new_zeros((graph_data.num_nodes, token_table.size(1)))
-        node_features[token_node_ids[valid]] = token_table[valid]
+        node_features = self._node_input_features(graph_data, token_node_ids, valid)
         return self.graph_encoder(node_features, graph_data)
 
     def _graph_embeddings_for_input(
@@ -790,8 +824,9 @@ class GraphCausalLM(nn.Module):
         if not valid_tokens.any():
             return token_table.new_zeros(output_shape), None
 
-        node_features = token_table.new_zeros((graph_data.num_nodes, token_table.size(1)))
-        node_features[token_node_ids[valid_tokens]] = token_table[valid_tokens]
+        node_features = self._node_input_features(
+            graph_data, token_node_ids, valid_tokens
+        )
         node_embeddings = self.graph_encoder(node_features, graph_data)
 
         flat_input = input_ids.reshape(-1).to(token_table.device)
@@ -923,8 +958,7 @@ class GraphCausalLM(nn.Module):
         valid = token_node_ids >= 0
         if not valid.any():
             return None, None
-        node_features = token_table.new_zeros((graph_data.num_nodes, token_table.size(1)))
-        node_features[token_node_ids[valid]] = token_table[valid]
+        node_features = self._node_input_features(graph_data, token_node_ids, valid)
         node_embeddings = self.graph_encoder(node_features, graph_data)
         graph_table = torch.zeros_like(token_table)
         graph_table[valid] = node_embeddings[token_node_ids[valid]]

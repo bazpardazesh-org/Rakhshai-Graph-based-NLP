@@ -19,13 +19,18 @@ builder.
 
 ## Relation Modes
 
+The graph builder emits **multi-relational parallel edges**: a node pair that
+participates in several relations contributes one edge per relation, each with
+its own `edge_type`, so the encoder sees every relation an edge belongs to rather
+than only the last one written.
+
 Use `--graph-relation-mode` to control how `edge_type` is used:
 
-- `bias`: the backward-compatible Phase 3 path. Relation ids modulate edge
-  weights with a learned scalar bias.
-- `embedding`: relation ids are converted into learned edge attributes. This
-  gives `GAT` and `GraphSAGE` a richer relation signal while keeping the same
-  encoder family.
+- `bias`: relation ids modulate edge weights with a learned scalar bias (the
+  lightest option; the historical Phase 3 path).
+- `embedding` (operational default): relation ids are converted into learned edge
+  attributes. This gives `GAT` and `GraphSAGE` a richer relation signal while
+  keeping the same encoder family, and best exploits the parallel-edge graph.
 - `rgcn`: switches the graph encoder to an R-GCN relation-aware message passing
   path.
 
@@ -60,6 +65,17 @@ Phase 4 adds optional node-importance scoring and lightweight graph pooling.
 Pooling uses `node_type_id` metadata exported by the Graph-LM graph builder.
 Token nodes are always type `0`; document, sentence and topic nodes receive
 positive ids.
+
+## Node-Type Embeddings
+
+Every graph node is initialised with a learned **node-type embedding** keyed by
+`node_type_id`, so non-token nodes (document, topic, sentence, context) no longer
+start from all-zero features and gain meaning only through message passing. Token
+nodes add their token embedding on top of the type vector.
+
+- Enabled by default; disable with `--no-graph-node-type-embedding` to restore
+  the zero-initialised non-token nodes.
+- Config fields: `graph_node_type_embedding` (bool) and `graph_num_node_types`.
 
 ## Benchmark Contract
 

@@ -26,6 +26,19 @@ the v1 checkpoint contract compatible.
     substring vocabulary, Viterbi segmentation, iterative pruning to
     `unigram_num_pieces`, single-character fallback for full coverage)
 
+## Operational default and special tokens
+
+For Graph-LM training (`lm-train`), `unigram` is now the **operational default**
+because it gives the lowest Persian out-of-vocabulary rate (word-level
+tokenization drops far more held-out tokens to `<unk>`). Pass
+`--tokenizer-type word` to opt back into whole-word tokens. The unigram
+vocabulary size is controlled by `--unigram-num-pieces` (default `8000`).
+
+The tokenizer reserves five stable special ids: `<pad>` (0), `<unk>` (1),
+`<bos>` (2), `<eos>` (3) and `<mask>` (4). `<mask>` backs the masked-token
+training objective so it no longer collides with genuine unknown tokens.
+Newly saved tokenizer artifacts use `tokenizer_version = 3`.
+
 ## Normalization options
 
 `PersianNormalizerConfig` exposes two language-aware switches:
@@ -40,7 +53,16 @@ the v1 checkpoint contract compatible.
 
 ## CLI Examples
 
-Train Graph-LM with the default word tokenizer:
+Train Graph-LM with the default unigram tokenizer (set the vocabulary size):
+
+```bash
+rgnn-cli lm-train \
+  --corpus data/expanded_persian_lm.txt \
+  --unigram-num-pieces 8000 \
+  --output-dir runs/fa-tokenizer-unigram
+```
+
+Opt back into the whole-word tokenizer:
 
 ```bash
 rgnn-cli lm-train \
@@ -78,7 +100,9 @@ Graph-LM checkpoint files plus `tokenizer_stats` in `metrics.json`.
 ## Compatibility
 
 Older tokenizer files without `tokenizer_type` still load as `word`. The old
-CLI value `subword` is accepted and mapped to `char_chunk`.
+CLI value `subword` is accepted and mapped to `char_chunk`. Tokenizers saved
+before `<mask>` existed load with `<mask>` mapped onto `<unk>`, so masked-token
+training stays well-defined for legacy checkpoints.
 
 Tokenizer configs serialised before `ezafe_mode` existed were produced under the
 old collapse behaviour, so they load with `ezafe_mode = "collapse"` to reproduce

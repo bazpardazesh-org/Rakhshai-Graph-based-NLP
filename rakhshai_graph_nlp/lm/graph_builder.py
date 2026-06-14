@@ -22,6 +22,7 @@ MAX_DENSE_GRAPH_CELLS = 25_000_000
 DEFAULT_GRAPH_RELATIONS = (
     "cooccurrence",
     "pmi",
+    "dependency",
     "stem",
     "subword",
     "word_document",
@@ -312,8 +313,7 @@ def _normalise_relation_weights(
 
 
 def _merge_relation_edges(
-    merged_edges: dict[tuple[int, int], float],
-    edge_types: dict[tuple[int, int], int],
+    edge_relations: dict[tuple[int, int], dict[int, float]],
     relation_edge_counts: dict[str, int],
     relation_edges: dict[tuple[int, int], float],
     *,
@@ -321,15 +321,33 @@ def _merge_relation_edges(
     relation_id: int,
     relation_weight: float,
 ) -> None:
+    """Accumulate one relation's edges, storing a separate weight per relation id.
+
+    An edge shared by several relations (e.g. cooccurrence *and* stem *and*
+    semantic) becomes parallel edges -- one per relation -- instead of the
+    previous behaviour where the last relation overwrote ``edge_type`` and the
+    relational signal was lost.
+    """
+
     count = 0
     for edge, weight in relation_edges.items():
         scaled = float(weight) * relation_weight
         if scaled == 0:
             continue
-        merged_edges[edge] = merged_edges.get(edge, 0.0) + scaled
-        edge_types[edge] = relation_id
+        relations = edge_relations.setdefault(edge, {})
+        relations[relation_id] = relations.get(relation_id, 0.0) + scaled
         count += 1
     relation_edge_counts[relation] = relation_edge_counts.get(relation, 0) + count
+
+
+def _accumulate_relation(
+    edge_relations: dict[tuple[int, int], dict[int, float]],
+    edge: tuple[int, int],
+    relation_id: int,
+    weight: float,
+) -> None:
+    relations = edge_relations.setdefault(edge, {})
+    relations[relation_id] = relations.get(relation_id, 0.0) + weight
 
 
 def _surface_stem(token: str) -> str:
@@ -430,6 +448,77 @@ def _semantic_similarity_edges(
     return edges
 
 
+def _distributional_similarity_edges(
+    base_edges: dict[tuple[int, int], float],
+    counts: Counter[int],
+    token_to_node: dict[int, int],
+    total_tokens: float,
+    *,
+    directed: bool,
+    threshold: float,
+    top_k: int | None,
+    max_context_fanout: int = 200,
+) -> dict[tuple[int, int], float]:
+    """Distributional (count-based) semantic similarity.
+
+    Two tokens are similar when their PPMI-weighted co-occurrence context
+    vectors are similar (cosine). This is genuine distributional semantics -- it
+    links words that share contexts even if they rarely co-occur -- unlike the
+    orthographic character-overlap heuristic. Pure NumPy, no external model.
+    """
+
+    ppmi = _apply_association_weighting(
+        dict(base_edges), counts, token_to_node, total_tokens, weighting="ppmi"
+    )
+    if not ppmi:
+        return {}
+    rows: dict[int, dict[int, float]] = {}
+    for (i, j), weight in ppmi.items():
+        if weight <= 0:
+            continue
+        rows.setdefault(i, {})[j] = weight
+    norms = {
+        node: math.sqrt(sum(value * value for value in row.values()))
+        for node, row in rows.items()
+    }
+    # Accumulate cosine numerators through shared contexts so we never form the
+    # full V*V matrix; very common contexts are skipped to bound the work.
+    context_to_nodes: dict[int, list[tuple[int, float]]] = {}
+    for node, row in rows.items():
+        for context, weight in row.items():
+            context_to_nodes.setdefault(context, []).append((node, weight))
+    dot: dict[tuple[int, int], float] = {}
+    for members in context_to_nodes.values():
+        if len(members) < 2 or len(members) > max_context_fanout:
+            continue
+        for a in range(len(members)):
+            node_a, weight_a = members[a]
+            for b in range(a + 1, len(members)):
+                node_b, weight_b = members[b]
+                key = (node_a, node_b) if node_a < node_b else (node_b, node_a)
+                dot[key] = dot.get(key, 0.0) + weight_a * weight_b
+    neighbours: dict[int, list[tuple[int, float]]] = {}
+    for (node_a, node_b), numerator in dot.items():
+        denom = norms.get(node_a, 0.0) * norms.get(node_b, 0.0)
+        if denom <= 0:
+            continue
+        score = numerator / denom
+        if score < threshold:
+            continue
+        neighbours.setdefault(node_a, []).append((node_b, score))
+        neighbours.setdefault(node_b, []).append((node_a, score))
+    edges: dict[tuple[int, int], float] = {}
+    for src, neigh in neighbours.items():
+        selected = sorted(neigh, key=lambda item: item[1], reverse=True)
+        if top_k is not None and top_k > 0:
+            selected = selected[:top_k]
+        for dst, score in selected:
+            edges[(src, dst)] = score
+            if not directed:
+                edges[(dst, src)] = score
+    return edges
+
+
 def _dependency_edges(
     unit_ids: Sequence[Sequence[int]],
     token_to_node: dict[int, int],
@@ -459,6 +548,110 @@ def _dependency_edges(
             if not directed:
                 edges[(dst, src)] = edges.get((dst, src), 0.0) + 1.0
     return edges
+
+
+def _get_stanza_pipeline():
+    """Lazily build and cache a Persian Stanza pipeline.
+
+    Returns ``None`` (cached) when Stanza or the Persian model is unavailable,
+    so callers transparently fall back to the heuristic relations instead of
+    raising. Mirrors the optional-backend pattern in ``graphs/dependency.py``.
+    """
+
+    if getattr(_get_stanza_pipeline, "_failed", False):
+        return None
+    pipeline = getattr(_get_stanza_pipeline, "_pipeline", None)
+    if pipeline is not None:
+        return pipeline
+    try:
+        import stanza
+
+        pipeline = stanza.Pipeline(
+            lang="fa",
+            processors="tokenize,mwt,pos,lemma,depparse",
+            use_gpu=False,
+            verbose=False,
+            download_method=None,
+        )
+    except Exception:
+        _get_stanza_pipeline._failed = True  # type: ignore[attr-defined]
+        return None
+    _get_stanza_pipeline._pipeline = pipeline  # type: ignore[attr-defined]
+    return pipeline
+
+
+def _representative_node(
+    surface: str,
+    tokenizer: PersianTokenizer,
+    token_to_node: dict[int, int],
+) -> int | None:
+    """First in-vocabulary sub-token node for a whole-word surface."""
+
+    for piece in tokenizer.tokenize(surface):
+        token_id = tokenizer.token_to_id.get(piece)
+        if token_id is not None and token_id in token_to_node:
+            return token_to_node[token_id]
+    return None
+
+
+def _stanza_linguistic_edges(
+    units: Sequence[str],
+    tokenizer: PersianTokenizer,
+    token_to_node: dict[int, int],
+    *,
+    directed: bool,
+) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], float]] | None:
+    """Real Persian dependency + lemma edges from Stanza.
+
+    Returns ``(dependency_edges, lemma_edges)`` mapped onto graph nodes, or
+    ``None`` when no backend is available. Dependency edges connect each word to
+    its syntactic head; lemma edges connect words that share a lemma.
+    """
+
+    pipeline = _get_stanza_pipeline()
+    if pipeline is None:
+        return None
+    dependency: dict[tuple[int, int], float] = {}
+    lemma_groups: dict[str, set[int]] = {}
+    for text in units:
+        if not text.strip():
+            continue
+        try:
+            doc = pipeline(text)
+        except Exception:
+            return None
+        for sent in doc.sentences:
+            id_to_node: dict[int, int] = {}
+            for word in sent.words:
+                node = _representative_node(word.text, tokenizer, token_to_node)
+                if node is None:
+                    continue
+                id_to_node[word.id] = node
+                lemma = (word.lemma or word.text).split("#")[0]
+                if lemma:
+                    lemma_groups.setdefault(lemma, set()).add(node)
+            for word in sent.words:
+                head = getattr(word, "head", 0)
+                if not head:
+                    continue
+                src = id_to_node.get(word.id)
+                dst = id_to_node.get(head)
+                if src is None or dst is None or src == dst:
+                    continue
+                dependency[(src, dst)] = dependency.get((src, dst), 0.0) + 1.0
+                if not directed:
+                    dependency[(dst, src)] = dependency.get((dst, src), 0.0) + 1.0
+    lemma_edges: dict[tuple[int, int], float] = {}
+    for nodes in lemma_groups.values():
+        members = sorted(nodes)
+        if len(members) < 2:
+            continue
+        for i, src in enumerate(members):
+            for dst in members[i + 1 :]:
+                lemma_edges[(src, dst)] = 1.0
+                if not directed:
+                    lemma_edges[(dst, src)] = 1.0
+    return dependency, lemma_edges
 
 
 def _apply_association_weighting(
@@ -527,8 +720,7 @@ def _prune_edges(
 
 
 def _add_context_nodes(
-    edges: dict[tuple[int, int], float],
-    edge_types: dict[tuple[int, int], int],
+    edge_relations: dict[tuple[int, int], dict[int, float]],
     nodes: list[str],
     unit_ids: Sequence[Sequence[int]],
     token_to_node: dict[int, int],
@@ -536,10 +728,10 @@ def _add_context_nodes(
     context_node_type: str,
     edge_weight: float,
     relation_id: int = 1,
-) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], int], list[str], list[str]]:
+) -> tuple[dict[tuple[int, int], dict[int, float]], list[str], list[str]]:
     node_types = ["token"] * len(nodes)
     if context_node_type == "none":
-        return edges, edge_types, nodes, node_types
+        return edge_relations, nodes, node_types
     if context_node_type not in {"document", "sentence"}:
         raise ValueError("context_node_type must be one of: none, document, sentence")
 
@@ -551,16 +743,13 @@ def _add_context_nodes(
         node_types.append(context_node_type)
         for token_id in set(ids):
             token_node = token_to_node[token_id]
-            edges[(context_node, token_node)] = edge_weight
-            edges[(token_node, context_node)] = edge_weight
-            edge_types[(context_node, token_node)] = relation_id
-            edge_types[(token_node, context_node)] = relation_id
-    return edges, edge_types, nodes, node_types
+            edge_relations[(context_node, token_node)] = {relation_id: edge_weight}
+            edge_relations[(token_node, context_node)] = {relation_id: edge_weight}
+    return edge_relations, nodes, node_types
 
 
 def _add_word_document_nodes(
-    edges: dict[tuple[int, int], float],
-    edge_types: dict[tuple[int, int], int],
+    edge_relations: dict[tuple[int, int], dict[int, float]],
     nodes: list[str],
     node_types: list[str],
     document_unit_ids: Sequence[Sequence[int]],
@@ -569,7 +758,7 @@ def _add_word_document_nodes(
     relation_id: int,
     relation_weight: float,
     link_tokens: bool = True,
-) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], int], list[int]]:
+) -> tuple[dict[tuple[int, int], dict[int, float]], list[int]]:
     document_nodes: list[int] = []
     for doc_idx, ids in enumerate(document_unit_ids):
         if not ids:
@@ -587,16 +776,13 @@ def _add_word_document_nodes(
                 continue
             token_node = token_to_node[token_id]
             weight = relation_weight * (count / max_count)
-            edges[(document_node, token_node)] = edges.get((document_node, token_node), 0.0) + weight
-            edges[(token_node, document_node)] = edges.get((token_node, document_node), 0.0) + weight
-            edge_types[(document_node, token_node)] = relation_id
-            edge_types[(token_node, document_node)] = relation_id
-    return edges, edge_types, document_nodes
+            _accumulate_relation(edge_relations, (document_node, token_node), relation_id, weight)
+            _accumulate_relation(edge_relations, (token_node, document_node), relation_id, weight)
+    return edge_relations, document_nodes
 
 
 def _add_topic_document_nodes(
-    edges: dict[tuple[int, int], float],
-    edge_types: dict[tuple[int, int], int],
+    edge_relations: dict[tuple[int, int], dict[int, float]],
     nodes: list[str],
     node_types: list[str],
     document_nodes: Sequence[int],
@@ -607,7 +793,7 @@ def _add_topic_document_nodes(
     relation_id: int,
     relation_weight: float,
     max_topics: int = 8,
-) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], int]]:
+) -> dict[tuple[int, int], dict[int, float]]:
     global_counts: Counter[int] = Counter()
     for ids in document_unit_ids:
         global_counts.update(ids)
@@ -621,37 +807,43 @@ def _add_topic_document_nodes(
         nodes.append(f"topic:{tokenizer.id_to_token[token_id]}")
         node_types.append("topic")
         token_node = token_to_node[token_id]
-        edges[(topic_node, token_node)] = edges.get((topic_node, token_node), 0.0) + relation_weight
-        edges[(token_node, topic_node)] = edges.get((token_node, topic_node), 0.0) + relation_weight
-        edge_types[(topic_node, token_node)] = relation_id
-        edge_types[(token_node, topic_node)] = relation_id
+        _accumulate_relation(edge_relations, (topic_node, token_node), relation_id, relation_weight)
+        _accumulate_relation(edge_relations, (token_node, topic_node), relation_id, relation_weight)
         for doc_node, ids in zip(document_nodes, document_unit_ids):
             if token_id not in ids:
                 continue
-            edges[(topic_node, doc_node)] = edges.get((topic_node, doc_node), 0.0) + relation_weight
-            edges[(doc_node, topic_node)] = edges.get((doc_node, topic_node), 0.0) + relation_weight
-            edge_types[(topic_node, doc_node)] = relation_id
-            edge_types[(doc_node, topic_node)] = relation_id
-    return edges, edge_types
+            _accumulate_relation(edge_relations, (topic_node, doc_node), relation_id, relation_weight)
+            _accumulate_relation(edge_relations, (doc_node, topic_node), relation_id, relation_weight)
+    return edge_relations
 
 
 def _edges_to_arrays(
-    edges: dict[tuple[int, int], float],
-    edge_types: dict[tuple[int, int], int] | None = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
-    if not edges:
-        empty_index = np.empty((2, 0), dtype=np.int64)
-        empty_weight = np.empty((0,), dtype=np.float32)
-        empty_type = np.empty((0,), dtype=np.int64) if edge_types is not None else None
-        return empty_index, empty_weight, empty_type
-    ordered = sorted(edges)
-    edge_index = np.array(ordered, dtype=np.int64).T
-    edge_weight = np.array([edges[edge] for edge in ordered], dtype=np.float32)
-    edge_type = (
-        np.array([edge_types.get(edge, 0) for edge in ordered], dtype=np.int64)
-        if edge_types is not None
-        else None
-    )
+    edge_relations: dict[tuple[int, int], dict[int, float]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Flatten ``{(src, dst): {relation_id: weight}}`` into parallel-edge arrays.
+
+    Each (src, dst, relation_id) triple becomes one column of ``edge_index``
+    with its own ``edge_weight`` and ``edge_type`` so relation-aware encoders
+    (RGCN / relation embedding / bias) see every relation an edge belongs to.
+    """
+
+    if not edge_relations:
+        return (
+            np.empty((2, 0), dtype=np.int64),
+            np.empty((0,), dtype=np.float32),
+            np.empty((0,), dtype=np.int64),
+        )
+    src_dst: list[tuple[int, int]] = []
+    weights: list[float] = []
+    types: list[int] = []
+    for edge in sorted(edge_relations):
+        for relation_id in sorted(edge_relations[edge]):
+            src_dst.append(edge)
+            weights.append(edge_relations[edge][relation_id])
+            types.append(relation_id)
+    edge_index = np.array(src_dst, dtype=np.int64).T
+    edge_weight = np.array(weights, dtype=np.float32)
+    edge_type = np.array(types, dtype=np.int64)
     return edge_index, edge_weight, edge_type
 
 
@@ -671,6 +863,8 @@ def build_graph_lm_graph(
     relation_weights: dict[str, float] | None = None,
     semantic_similarity_threshold: float = 0.6,
     semantic_top_k: int | None = 4,
+    semantic_method: str = "distributional",
+    linguistic_backend: str = "auto",
     topic_top_k: int = 8,
     build_batch_size: int | None = None,
 ) -> GraphLMGraph:
@@ -725,9 +919,24 @@ def build_graph_lm_graph(
         directed=directed,
         batch_size=build_batch_size,
     )
-    edges: dict[tuple[int, int], float] = {}
-    edge_types: dict[tuple[int, int], int] = {}
+    # Maps each (src, dst) pair to {relation_id: weight}; an edge may belong to
+    # several relations at once, each emitted later as a parallel edge.
+    edge_relations: dict[tuple[int, int], dict[int, float]] = {}
     relation_edge_counts: dict[str, int] = {}
+
+    # Real Persian linguistics (dependency + lemma) from an optional Stanza
+    # backend, shared by the dependency and stem relations. Returns None and the
+    # relations fall back to heuristics when Stanza / the fa model is absent.
+    stanza_dependency: dict[tuple[int, int], float] | None = None
+    stanza_lemma: dict[tuple[int, int], float] | None = None
+    if linguistic_backend in {"auto", "stanza"} and (
+        "dependency" in enabled_relations or "stem" in enabled_relations
+    ):
+        stanza_result = _stanza_linguistic_edges(
+            units, tokenizer, token_to_node, directed=directed
+        )
+        if stanza_result is not None:
+            stanza_dependency, stanza_lemma = stanza_result
 
     if "cooccurrence" in enabled_relations:
         weighted_edges = _apply_association_weighting(
@@ -744,8 +953,7 @@ def build_graph_lm_graph(
             directed=directed,
         )
         _merge_relation_edges(
-            edges,
-            edge_types,
+            edge_relations,
             relation_edge_counts,
             weighted_edges,
             relation="cooccurrence",
@@ -770,8 +978,7 @@ def build_graph_lm_graph(
             directed=directed,
         )
         _merge_relation_edges(
-            edges,
-            edge_types,
+            edge_relations,
             relation_edge_counts,
             weighted_edges,
             relation=association_relation,
@@ -780,16 +987,21 @@ def build_graph_lm_graph(
         )
 
     if "dependency" in enabled_relations:
-        dependency_edges = _dependency_edges(
-            unit_ids,
-            token_to_node,
-            tokenizer,
-            directed=directed,
+        # Real syntactic heads from Stanza when available, else the light-verb
+        # lookahead heuristic.
+        dependency_edges = (
+            dict(stanza_dependency)
+            if stanza_dependency is not None
+            else _dependency_edges(
+                unit_ids,
+                token_to_node,
+                tokenizer,
+                directed=directed,
+            )
         )
         dependency_edges = _prune_edges(dependency_edges, min_edge_weight, top_k, directed=directed)
         _merge_relation_edges(
-            edges,
-            edge_types,
+            edge_relations,
             relation_edge_counts,
             dependency_edges,
             relation="dependency",
@@ -798,10 +1010,14 @@ def build_graph_lm_graph(
         )
 
     if "stem" in enabled_relations:
+        # Surface stem grouping, enriched with real Stanza lemma groups so
+        # inflected forms sharing a lemma are linked even when suffixes differ.
         stem_edges = _stem_edges(token_to_node, tokenizer, directed=directed)
+        if stanza_lemma:
+            for edge, weight in stanza_lemma.items():
+                stem_edges[edge] = max(stem_edges.get(edge, 0.0), weight)
         _merge_relation_edges(
-            edges,
-            edge_types,
+            edge_relations,
             relation_edge_counts,
             stem_edges,
             relation="stem",
@@ -812,8 +1028,7 @@ def build_graph_lm_graph(
     if "subword" in enabled_relations:
         subword_edges = _subword_edges(token_to_node, tokenizer, directed=directed)
         _merge_relation_edges(
-            edges,
-            edge_types,
+            edge_relations,
             relation_edge_counts,
             subword_edges,
             relation="subword",
@@ -822,16 +1037,28 @@ def build_graph_lm_graph(
         )
 
     if "semantic_similarity" in enabled_relations:
-        semantic_edges = _semantic_similarity_edges(
-            token_to_node,
-            tokenizer,
-            directed=directed,
-            threshold=semantic_similarity_threshold,
-            top_k=semantic_top_k,
-        )
+        # Distributional (PPMI-cosine) semantics by default; "orthographic"
+        # keeps the character-overlap heuristic.
+        if semantic_method == "orthographic":
+            semantic_edges = _semantic_similarity_edges(
+                token_to_node,
+                tokenizer,
+                directed=directed,
+                threshold=semantic_similarity_threshold,
+                top_k=semantic_top_k,
+            )
+        else:
+            semantic_edges = _distributional_similarity_edges(
+                base_edges,
+                counts,
+                token_to_node,
+                total_tokens,
+                directed=directed,
+                threshold=semantic_similarity_threshold,
+                top_k=semantic_top_k,
+            )
         _merge_relation_edges(
-            edges,
-            edge_types,
+            edge_relations,
             relation_edge_counts,
             semantic_edges,
             relation="semantic_similarity",
@@ -842,10 +1069,9 @@ def build_graph_lm_graph(
     node_types = ["token"] * len(nodes)
     document_nodes: list[int] = []
     if "word_document" in enabled_relations:
-        before = len(edges)
-        edges, edge_types, document_nodes = _add_word_document_nodes(
-            edges,
-            edge_types,
+        before = len(edge_relations)
+        edge_relations, document_nodes = _add_word_document_nodes(
+            edge_relations,
             nodes,
             node_types,
             document_unit_ids,
@@ -853,14 +1079,13 @@ def build_graph_lm_graph(
             relation_id=relation_to_id["word_document"],
             relation_weight=relation_weight_map.get("word_document", 1.0),
         )
-        relation_edge_counts["word_document"] = len(edges) - before
+        relation_edge_counts["word_document"] = len(edge_relations) - before
 
     if "topic_document" in enabled_relations:
         if not document_nodes:
-            before_docs = len(edges)
-            edges, edge_types, document_nodes = _add_word_document_nodes(
-                edges,
-                edge_types,
+            before_docs = len(edge_relations)
+            edge_relations, document_nodes = _add_word_document_nodes(
+                edge_relations,
                 nodes,
                 node_types,
                 document_unit_ids,
@@ -872,11 +1097,10 @@ def build_graph_lm_graph(
             relation_edge_counts["word_document"] = relation_edge_counts.get(
                 "word_document",
                 0,
-            ) + len(edges) - before_docs
-        before = len(edges)
-        edges, edge_types = _add_topic_document_nodes(
-            edges,
-            edge_types,
+            ) + len(edge_relations) - before_docs
+        before = len(edge_relations)
+        edge_relations = _add_topic_document_nodes(
+            edge_relations,
             nodes,
             node_types,
             document_nodes,
@@ -887,14 +1111,14 @@ def build_graph_lm_graph(
             relation_weight=relation_weight_map.get("topic_document", 1.0),
             max_topics=topic_top_k,
         )
-        relation_edge_counts["topic_document"] = len(edges) - before
+        relation_edge_counts["topic_document"] = len(edge_relations) - before
 
-    if not edges:
+    if not edge_relations:
         fallback_edges = _apply_association_weighting(
             dict(base_edges),
-        counts,
-        token_to_node,
-        total_tokens,
+            counts,
+            token_to_node,
+            total_tokens,
             weighting=weighting,
         )
         fallback_edges = _prune_edges(
@@ -905,8 +1129,7 @@ def build_graph_lm_graph(
         )
         fallback_relation = enabled_relations[0]
         _merge_relation_edges(
-            edges,
-            edge_types,
+            edge_relations,
             relation_edge_counts,
             fallback_edges,
             relation=fallback_relation,
@@ -917,11 +1140,10 @@ def build_graph_lm_graph(
     if context_node_type != "none":
         if context_node_type not in relation_to_id:
             relation_to_id[context_node_type] = len(relation_to_id)
-        before = len(edges)
+        before = len(edge_relations)
         context_relation_id = relation_to_id[context_node_type]
-        edges, edge_types, nodes, node_types = _add_context_nodes(
-            edges,
-            edge_types,
+        edge_relations, nodes, node_types = _add_context_nodes(
+            edge_relations,
             nodes,
             unit_ids,
             token_to_node,
@@ -929,9 +1151,9 @@ def build_graph_lm_graph(
             edge_weight=1.0,
             relation_id=context_relation_id,
         )
-        relation_edge_counts[context_node_type] = len(edges) - before
+        relation_edge_counts[context_node_type] = len(edge_relations) - before
 
-    edge_index, edge_weight, edge_type = _edges_to_arrays(edges, edge_types)
+    edge_index, edge_weight, edge_type = _edges_to_arrays(edge_relations)
     relation_weights_payload = {
         relation: relation_weight_map.get(relation, 1.0)
         for relation in enabled_relations
@@ -955,7 +1177,9 @@ def build_graph_lm_graph(
             "graph_scope": graph_scope,
             "context_node_type": context_node_type,
             "num_nodes": len(nodes),
-            "num_edges": int(len(edges) if directed else len(edges) // 2),
+            "num_edges": int(
+                edge_index.shape[1] if directed else edge_index.shape[1] // 2
+            ),
             "enabled_relations": enabled_relations,
             "relation_weights": relation_weights_payload,
             "edge_types": relation_to_id,
@@ -963,6 +1187,11 @@ def build_graph_lm_graph(
             "node_type_counts": dict(Counter(node_types)),
             "semantic_similarity_threshold": semantic_similarity_threshold,
             "semantic_top_k": semantic_top_k,
+            "semantic_method": semantic_method,
+            "linguistic_backend": linguistic_backend,
+            "dependency_backend": (
+                "stanza" if stanza_dependency is not None else "heuristic"
+            ),
             "topic_top_k": topic_top_k,
             "build_batch_size": build_batch_size,
             "graph_build_batches": graph_build_batches,
@@ -1013,8 +1242,8 @@ def build_graph_lm_graph_from_token_ids(
     )
     edges = _prune_edges(edges, min_edge_weight, top_k, directed=directed)
     nodes = [tokenizer.id_to_token[token_id] for token_id in kept_token_ids]
-    edge_types: dict[tuple[int, int], int] = {}
-    edge_index, edge_weight, edge_type = _edges_to_arrays(edges, edge_types)
+    edge_relations = {edge: {0: weight} for edge, weight in edges.items()}
+    edge_index, edge_weight, edge_type = _edges_to_arrays(edge_relations)
     return GraphLMGraph(
         nodes=nodes,
         token_to_node=token_to_node,
@@ -1031,6 +1260,8 @@ def build_graph_lm_graph_from_token_ids(
             "top_k": top_k,
             "directed": directed,
             "num_nodes": len(nodes),
-            "num_edges": int(len(edges) if directed else len(edges) // 2),
+            "num_edges": int(
+                edge_index.shape[1] if directed else edge_index.shape[1] // 2
+            ),
         },
     )

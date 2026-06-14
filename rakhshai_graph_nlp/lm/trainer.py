@@ -55,10 +55,15 @@ class LMTrainingConfig:
     relation_weights: dict[str, float] | None = None
     semantic_similarity_threshold: float = 0.6
     semantic_top_k: int | None = 4
+    semantic_method: str = "distributional"
+    linguistic_backend: str = "auto"
     topic_top_k: int = 8
-    graph_relation_mode: str = "bias"
+    # "embedding" learns a vector per relation and best exploits the multi-
+    # relational (parallel-edge) graph; "bias"/"rgcn" remain available.
+    graph_relation_mode: str = "embedding"
     graph_pooling: str = "none"
     graph_node_importance: bool = False
+    graph_node_type_embedding: bool = True
     fusion_levels: str = "token"
     graph_fusion_scale: float = 1.0
     graph_fusion_dropout: float = 0.0
@@ -83,6 +88,10 @@ class LMTrainingConfig:
     curriculum_learning: bool = True
     early_stopping_patience: int = 3
     early_stopping_min_delta: float = 1e-4
+    # Which validation signal drives best-checkpoint selection and early stopping.
+    # "next_token" tracks the pure language-modelling loss (perplexity) and is the
+    # right default for text generation; "total" tracks the full multi-task loss.
+    checkpoint_metric: str = "next_token"
     max_grad_norm: float = 1.0
     dynamic_graph: bool = False
     graph_build_batch_size: int | None = None
@@ -92,11 +101,12 @@ class LMTrainingConfig:
     dataloader_pin_memory: bool = False
     amp: bool = False
     resume_from: str | None = None
-    tokenizer_type: str = "word"
+    tokenizer_type: str = "unigram"
     tokenizer_half_space: str = "preserve"
     tokenizer_morph_splitting: bool = False
     tokenizer_compound_verb_mode: str = "none"
     tokenizer_bpe_merges: int = 200
+    tokenizer_unigram_num_pieces: int = 8000
     device: str = "cpu"
     seed: int = 0
 
@@ -505,9 +515,17 @@ class LMTrainer:
             if validation_task_losses:
                 row["validation_task_losses"] = validation_task_losses
             history.append(row)
-            improved = val_loss < (best_val - self.config.early_stopping_min_delta)
-            if improved or val_loss <= best_val:
-                best_val = val_loss
+            # Best-checkpoint / early-stopping signal. Default tracks the pure
+            # next-token loss so the selected model is the best language model,
+            # not the lowest weighted sum of auxiliary multi-task terms.
+            monitor = (
+                val_loss
+                if self.config.checkpoint_metric == "total"
+                else val_next_token
+            )
+            improved = monitor < (best_val - self.config.early_stopping_min_delta)
+            if improved or monitor <= best_val:
+                best_val = monitor
                 best_epoch = epoch
                 epochs_without_improvement = 0
                 self.model.save_pretrained(
@@ -536,8 +554,13 @@ class LMTrainer:
                 and epochs_without_improvement >= self.config.early_stopping_patience
             ):
                 stopped_early = True
+                monitored = (
+                    "validation_loss"
+                    if self.config.checkpoint_metric == "total"
+                    else "validation_next_token_loss"
+                )
                 early_stopping_reason = (
-                    "validation_loss did not improve for "
+                    f"{monitored} did not improve for "
                     f"{self.config.early_stopping_patience} epoch(s)"
                 )
                 break
@@ -659,6 +682,8 @@ def _load_or_build_graph(
         "relation_weights": training_config.relation_weights or {},
         "semantic_similarity_threshold": training_config.semantic_similarity_threshold,
         "semantic_top_k": training_config.semantic_top_k,
+        "semantic_method": training_config.semantic_method,
+        "linguistic_backend": training_config.linguistic_backend,
         "topic_top_k": training_config.topic_top_k,
         "build_batch_size": training_config.graph_build_batch_size,
     }
@@ -690,6 +715,8 @@ def _load_or_build_graph(
                 relation_weights=training_config.relation_weights,
                 semantic_similarity_threshold=training_config.semantic_similarity_threshold,
                 semantic_top_k=training_config.semantic_top_k,
+                semantic_method=training_config.semantic_method,
+                linguistic_backend=training_config.linguistic_backend,
                 topic_top_k=training_config.topic_top_k,
                 build_batch_size=training_config.graph_build_batch_size,
             )
@@ -759,6 +786,7 @@ def train_graph_lm(
         morph_splitting=training_config.tokenizer_morph_splitting,
         compound_verb_mode=training_config.tokenizer_compound_verb_mode,
         bpe_num_merges=training_config.tokenizer_bpe_merges,
+        unigram_num_pieces=training_config.tokenizer_unigram_num_pieces,
     ).fit(train_corpus)
     augmented_train_corpus = augment_corpus(
         train_corpus,
@@ -816,9 +844,11 @@ def train_graph_lm(
         cfg.graph_encoder = "rgcn"
     cfg.fusion = fusion
     cfg.pad_token_id = tokenizer.pad_id
+    cfg.mask_token_id = tokenizer.mask_id
     cfg.graph_relation_mode = training_config.graph_relation_mode
     cfg.graph_pooling = training_config.graph_pooling
     cfg.graph_node_importance = training_config.graph_node_importance
+    cfg.graph_node_type_embedding = training_config.graph_node_type_embedding
     cfg.fusion_levels = training_config.fusion_levels
     cfg.graph_fusion_scale = training_config.graph_fusion_scale
     cfg.graph_fusion_dropout = training_config.graph_fusion_dropout

@@ -99,11 +99,14 @@ Mehr Parseh, and is released under the MIT license.
 - **Persian-aware tokenization:** Punctuation is tokenized separately (Persian
   marks are no longer glued to words and ASCII marks are no longer dropped),
   Persian decimal/thousands separators are normalized, hamza folding and ezafe
-  handling are configurable, and `unigram` is a genuine Unigram LM tokenizer.
-- **Graph Reasoning Core for multi-relation graphs:** The graph encoder can use
-  multi-relation graph relation IDs through `bias`, `embedding`, or `rgcn`
-  modes, use `RGCN` for relation-aware message passing, and optionally use node
-  importance and subgraph pooling.
+  handling are configurable, and `unigram` is a genuine Unigram LM tokenizer and
+  the operational default. A dedicated `<mask>` token backs masked-token training.
+- **Graph Reasoning Core for multi-relation graphs:** The graph keeps parallel
+  edges per relation (an edge can carry several relations at once), and the
+  encoder uses relation IDs through `bias`, `embedding` (default), or `rgcn`
+  modes, uses `RGCN` for relation-aware message passing, gives non-token nodes
+  learned node-type embeddings, and optionally uses node importance and subgraph
+  pooling.
 - **Adaptive Graph-Text Fusion:** The model can control text/graph fusion at the
   `token`, `sentence`, and `subgraph` levels. Graph usage strength is controlled
   by scale/dropout, and gate statistics are stored in `metrics.json` so you can
@@ -162,12 +165,19 @@ the context, and subgraph level for injecting a summary of non-token nodes such
 as documents or topics.
 
 > **Checkpoint compatibility note.** The decoder was modernized (RoPE, SwiGLU,
-> RMSNorm, pre-norm) and the `unigram` tokenizer is now a real Unigram LM, while
-> the default `ezafe_mode` is now `marker`. Checkpoints saved before these
-> changes still load (`from_pretrained` uses `strict=False`) but their
-> transformer weights no longer match the new layout, so retrain to use the new
-> architecture. Tokenizer configs saved before `ezafe_mode` existed keep the old
-> `collapse` behaviour on load.
+> RMSNorm, pre-norm) and the `unigram` tokenizer is now a real Unigram LM and the
+> operational default, while the default `ezafe_mode` is now `marker`. Several
+> defaults changed for better Persian generation: the tokenizer (`unigram`), the
+> graph relation mode (`embedding`), best-checkpoint selection
+> (`--checkpoint-metric next_token`), and the default relation set now includes
+> `dependency`. The tokenizer also adds a real `<mask>` token (vocabulary grows by
+> one, `tokenizer_version = 3`), the multi-relation graph keeps **parallel edges
+> per relation** (an edge can carry several relations at once), and non-token
+> graph nodes get learned node-type embeddings. Checkpoints saved before these
+> changes still load (`from_pretrained` uses `strict=False`) but their transformer
+> weights no longer match the new layout, so retrain to use the new architecture.
+> Tokenizers without `<mask>` load with it mapped to `<unk>`; tokenizer configs
+> saved before `ezafe_mode` existed keep the old `collapse` behaviour on load.
 
 ## Initial Graph-LM Result
 
@@ -313,7 +323,7 @@ nearby words and other documents.
 | `build_semantic_graph` | Builds semantic graphs from lexical relations and embedding similarity |
 | `build_semantic_graph_from_farsnet` | Builds semantic graphs from FarsNet JSON/CSV/TSV output |
 | `load_farsnet_relations` | Loads FarsNet relations from a file and converts them into graph-usable relations |
-| `PersianTokenizer` | Numeric LM tokenizer with half-space support, Persian cleanup, standalone punctuation tokens, numeric-separator and configurable hamza/ezafe normalization, and `word`/`char_chunk`/`bpe`/`unigram` modes |
+| `PersianTokenizer` | Numeric LM tokenizer with half-space support, Persian cleanup, standalone punctuation tokens, numeric-separator and configurable hamza/ezafe normalization, a `<mask>` special token, and `word`/`char_chunk`/`bpe`/`unigram` modes (`unigram` is the operational default) |
 | `LMDataset` | Prepares `input_ids` and `target_ids` for next-token prediction |
 | `build_graph_lm_graph` | Builds a word co-occurrence graph from a corpus for Graph-LM |
 | `GraphCausalLM` | Persian language model with GNN encoder, gated graph-token fusion, and a modern decoder-only Transformer (RoPE, SwiGLU, RMSNorm, KV-cache generation) |
@@ -498,7 +508,7 @@ rgnn-cli lm-train \
 By default, the Graph-LM path builds the full multi-relation graph:
 
 ```text
-cooccurrence + pmi + stem + subword + word_document + topic_document
+cooccurrence + pmi + dependency + stem + subword + word_document + topic_document
 ```
 
 To reproduce the older simple baseline, explicitly limit relations:
@@ -719,12 +729,17 @@ Important Graph-LM options:
 | Option | Use |
 | --- | --- |
 | `--corpus` | Path to the raw Persian text file for LM training |
+| `--tokenizer-type` | `word`, `char_chunk`, `bpe`, or `unigram` (default); `unigram` gives the lowest Persian OOV |
+| `--unigram-num-pieces` | Target subword vocabulary size for the unigram tokenizer (default `8000`) |
 | `--graph-encoder` | Select `gcn`, `gat`, `graphsage`, `rgcn`, or `none` for the no-graph baseline |
-| `--graph-relations` | Select graph relations; if omitted, the default multi-relation preset is used |
+| `--graph-relations` | Select graph relations; if omitted, the default multi-relation preset (now including `dependency`) is used |
+| `--semantic-method` | `semantic_similarity` scoring: `distributional` (PPMI-cosine, default) or `orthographic` (character n-gram) |
+| `--linguistic-backend` | Backend for `dependency`/lemma relations: `auto` (Stanza if installed, else heuristic), `stanza`, or `heuristic` |
 | `--relation-weights` | Set relation weights, such as `pmi=0.7,stem=0.5` |
-| `--graph-relation-mode` | How `edge_type` is consumed in the encoder; one of `bias`, `embedding`, or `rgcn` |
+| `--graph-relation-mode` | How `edge_type` is consumed in the encoder; one of `bias`, `embedding` (default), or `rgcn` |
 | `--graph-pooling` | Optional pooling over subgraphs; one of `none`, `mean`, or `attention` |
 | `--graph-node-importance` | Enable the internal scorer for detecting more important nodes |
+| `--no-graph-node-type-embedding` | Disable learned node-type embeddings (non-token nodes start from zero) |
 | `--fusion` | Select text/graph embedding fusion, such as `gated` |
 | `--fusion-levels` | Select fusion levels, such as `token` or `token,sentence,subgraph` |
 | `--graph-fusion-scale` | Strength multiplier for graph embeddings before fusion |
@@ -742,7 +757,8 @@ Important Graph-LM options:
 | `--subgraph-sampling-ratio` | Share of edges kept in each graph training view |
 | `--contrastive-weight` | Weight of the contrastive consistency loss between graph views |
 | `--no-text-augmentation` and `--no-curriculum` | Disable text augmentation or curriculum for ablation |
-| `--early-stopping-patience` and `--early-stopping-min-delta` | Control early stopping based on validation loss |
+| `--checkpoint-metric` | Validation signal for best-checkpoint selection and early stopping: `next_token` (perplexity, default) or `total` multi-task loss |
+| `--early-stopping-patience` and `--early-stopping-min-delta` | Control early stopping based on the `--checkpoint-metric` signal |
 | `--max-grad-norm` | Gradient clipping limit in the trainer |
 | `--graph-build-batch-size` | Batched graph-statistics construction for larger corpora |
 | `--graph-cache-dir` | Directory for caching built graphs for reuse in later runs |

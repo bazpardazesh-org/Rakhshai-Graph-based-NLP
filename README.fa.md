@@ -95,11 +95,13 @@ test و بررسی سلامت پیاده‌سازی مناسب است.
 - **توکن‌سازی فارسی‌آگاه:** علائم سجاوندی توکن مستقل می‌شوند (علائم فارسی دیگر به
   کلمه نمی‌چسبند و علائم ASCII حذف نمی‌شوند)، جداکننده‌های اعشار/هزارگان فارسی
   نرمال می‌شوند، فولد کردن همزه و هندل کردن اضافه قابل‌تنظیم‌اند، و `unigram` یک
-  توکنایزر Unigram LM واقعی است.
-- **Graph Reasoning Core برای گراف چندرابطه‌ای:** encoder گراف می‌تواند
-  relation idهای گراف چندرابطه‌ای را با حالت‌های `bias`، `embedding` یا `rgcn` مصرف کند،
-  از `RGCN` برای message passing رابطه‌محور استفاده کند، و به صورت اختیاری
-  node importance و subgraph pooling داشته باشد.
+  توکنایزر Unigram LM واقعی و پیش‌فرض عملیاتی است. یک توکن `<mask>` اختصاصی هدف
+  آموزشی masked-token را پشتیبانی می‌کند.
+- **Graph Reasoning Core برای گراف چندرابطه‌ای:** گراف برای هر رابطه یال موازی
+  نگه می‌دارد (یک یال می‌تواند هم‌زمان چند رابطه داشته باشد)، و encoder
+  relation idها را با حالت‌های `bias`، `embedding` (پیش‌فرض) یا `rgcn` مصرف می‌کند،
+  از `RGCN` برای message passing رابطه‌محور استفاده می‌کند، به nodeهای غیرتوکنی
+  embedding نوع-نود می‌دهد، و به صورت اختیاری node importance و subgraph pooling دارد.
 - **Adaptive Graph-Text Fusion:** مدل می‌تواند ترکیب متن و گراف را در سطح
   `token`، `sentence` و `subgraph` کنترل کند. شدت استفاده از گراف با
   scale/dropout تنظیم می‌شود و آمار gateها در `metrics.json` ذخیره می‌شود تا
@@ -156,12 +158,19 @@ Persian Causal LM
 nodeهای غیرتوکنی مانند سند یا topic.
 
 > **نکتهٔ سازگاری checkpoint.** decoder مدرن شد (RoPE، SwiGLU، RMSNorm، pre-norm)
-> و توکنایزر `unigram` حالا یک Unigram LM واقعی است، ضمن اینکه پیش‌فرض
-> `ezafe_mode` اکنون `marker` است. checkpointهای ذخیره‌شده پیش از این تغییرات
-> همچنان لود می‌شوند (`from_pretrained` با `strict=False`) ولی وزن‌های
-> Transformerشان با چینش جدید نمی‌خواند، پس برای استفاده از معماری جدید باید از
-> نو آموزش بدهید. configهای توکنایزرِ ذخیره‌شده پیش از وجود `ezafe_mode` هنگام
-> لود رفتار قدیمی `collapse` را حفظ می‌کنند.
+> و توکنایزر `unigram` حالا یک Unigram LM واقعی و پیش‌فرض عملیاتی است، ضمن اینکه
+> پیش‌فرض `ezafe_mode` اکنون `marker` است. چند پیش‌فرض برای تولید بهتر فارسی عوض
+> شد: توکنایزر (`unigram`)، حالت رابطهٔ گراف (`embedding`)، انتخاب best-checkpoint
+> (`--checkpoint-metric next_token`)، و مجموعهٔ رابطه‌های پیش‌فرض که حالا شامل
+> `dependency` است. توکنایزر یک توکن واقعی `<mask>` هم اضافه می‌کند (اندازهٔ vocab
+> یک واحد بزرگ‌تر می‌شود، `tokenizer_version = 3`)، گراف چندرابطه‌ای **یال موازی
+> به‌ازای هر رابطه** نگه می‌دارد (یک یال می‌تواند چند رابطه را هم‌زمان حمل کند)، و
+> nodeهای غیرتوکنی embedding نوع-نود می‌گیرند. checkpointهای ذخیره‌شده پیش از این
+> تغییرات همچنان لود می‌شوند (`from_pretrained` با `strict=False`) ولی وزن‌های
+> Transformerشان با چینش جدید نمی‌خواند، پس برای استفاده از معماری جدید باید از نو
+> آموزش بدهید. توکنایزرهای بدون `<mask>` با نگاشت آن به `<unk>` لود می‌شوند؛
+> configهای توکنایزرِ ذخیره‌شده پیش از وجود `ezafe_mode` هنگام لود رفتار قدیمی
+> `collapse` را حفظ می‌کنند.
 
 ## نتیجهٔ اولیه Graph-LM
 
@@ -301,7 +310,7 @@ rgnn-cli generate \
 | `build_semantic_graph` | ساخت گراف معنایی از روابط واژگانی و شباهت embedding |
 | `build_semantic_graph_from_farsnet` | ساخت گراف معنایی از خروجی JSON/CSV/TSV مربوط به FarsNet |
 | `load_farsnet_relations` | خواندن روابط FarsNet از فایل و تبدیل آن به روابط قابل استفاده در گراف |
-| `PersianTokenizer` | tokenizer عددی مخصوص LM با پشتیبانی از نیم‌فاصله، تمیزسازی فارسی، توکن مستقل برای علائم سجاوندی، نرمال‌سازی جداکننده‌های عدد و فولد قابل‌تنظیم همزه/اضافه، و حالت‌های `word`/`char_chunk`/`bpe`/`unigram` |
+| `PersianTokenizer` | tokenizer عددی مخصوص LM با پشتیبانی از نیم‌فاصله، تمیزسازی فارسی، توکن مستقل برای علائم سجاوندی، نرمال‌سازی جداکننده‌های عدد و فولد قابل‌تنظیم همزه/اضافه، توکن ویژهٔ `<mask>`، و حالت‌های `word`/`char_chunk`/`bpe`/`unigram` (پیش‌فرض عملیاتی `unigram`) |
 | `LMDataset` | آماده‌سازی `input_ids` و `target_ids` برای پیش‌بینی توکن بعدی |
 | `build_graph_lm_graph` | ساخت گراف هم‌رخدادی واژگان از corpus برای Graph-LM |
 | `GraphCausalLM` | مدل زبانی فارسی با GNN encoder، gated graph-token fusion و یک Transformer decoder مدرن (RoPE، SwiGLU، RMSNorm، تولید با KV-cache) |
@@ -487,7 +496,7 @@ rgnn-cli lm-train \
 در حالت پیش‌فرض، مسیر Graph-LM گراف چندرابطه‌ای کامل را می‌سازد:
 
 ```text
-cooccurrence + pmi + stem + subword + word_document + topic_document
+cooccurrence + pmi + dependency + stem + subword + word_document + topic_document
 ```
 
 برای بازتولید baseline سادهٔ قدیمی، relation را صریح محدود کنید:
@@ -707,12 +716,17 @@ runs/graph-lm/
 | گزینه | کاربرد |
 | --- | --- |
 | `--corpus` | مسیر فایل متن خام فارسی برای آموزش LM |
+| `--tokenizer-type` | `word`، `char_chunk`، `bpe`، یا `unigram` (پیش‌فرض)؛ `unigram` کمترین OOV فارسی را دارد |
+| `--unigram-num-pieces` | اندازهٔ هدفِ واژگانِ subword برای توکنایزر unigram (پیش‌فرض `8000`) |
 | `--graph-encoder` | انتخاب `gcn`، `gat`، `graphsage`، `rgcn` یا `none` برای baseline بدون گراف |
-| `--graph-relations` | انتخاب رابطه‌های گراف؛ اگر ندهید preset چندرابطه‌ای پیش‌فرض فعال است |
+| `--graph-relations` | انتخاب رابطه‌های گراف؛ اگر ندهید preset چندرابطه‌ای پیش‌فرض (که حالا شامل `dependency` است) فعال است |
+| `--semantic-method` | روش `semantic_similarity`: `distributional` (PPMI-cosine، پیش‌فرض) یا `orthographic` (n-gram حروف) |
+| `--linguistic-backend` | backend رابطه‌های `dependency`/lemma: `auto` (در صورت نصب Stanza، وگرنه heuristic)، `stanza`، یا `heuristic` |
 | `--relation-weights` | وزن‌دهی relationها، مثل `pmi=0.7,stem=0.5` |
-| `--graph-relation-mode` | نحوهٔ مصرف `edge_type` در encoder؛ یکی از `bias`، `embedding` یا `rgcn` |
+| `--graph-relation-mode` | نحوهٔ مصرف `edge_type` در encoder؛ یکی از `bias`، `embedding` (پیش‌فرض) یا `rgcn` |
 | `--graph-pooling` | pooling اختیاری روی subgraphها؛ یکی از `none`، `mean` یا `attention` |
 | `--graph-node-importance` | فعال‌کردن scorer داخلی برای تشخیص nodeهای مهم‌تر |
+| `--no-graph-node-type-embedding` | خاموش‌کردن embedding نوع-نود (nodeهای غیرتوکنی از صفر شروع می‌کنند) |
 | `--fusion` | انتخاب روش ترکیب embedding متنی و گرافی، مثل `gated` |
 | `--fusion-levels` | انتخاب سطح‌های fusion؛ مثل `token` یا `token,sentence,subgraph` |
 | `--graph-fusion-scale` | ضریب شدت embedding گرافی قبل از fusion |
@@ -730,7 +744,8 @@ runs/graph-lm/
 | `--subgraph-sampling-ratio` | سهم یال‌های نگه‌داشته‌شده در هر view گرافی train |
 | `--contrastive-weight` | وزن loss سازگاری contrastive بین viewهای گرافی |
 | `--no-text-augmentation` و `--no-curriculum` | خاموش‌کردن augmentation متنی یا curriculum برای ablation |
-| `--early-stopping-patience` و `--early-stopping-min-delta` | کنترل early stopping بر اساس validation loss |
+| `--checkpoint-metric` | سیگنال انتخاب best-checkpoint و early stopping: `next_token` (perplexity، پیش‌فرض) یا `total` (loss چندوظیفه‌ای) |
+| `--early-stopping-patience` و `--early-stopping-min-delta` | کنترل early stopping بر اساس سیگنال `--checkpoint-metric` |
 | `--max-grad-norm` | حد clipping گرادیان در trainer |
 | `--graph-build-batch-size` | ساخت batchی آمار گراف برای corpusهای بزرگ‌تر |
 | `--graph-cache-dir` | مسیر cache گراف‌های ساخته‌شده برای استفاده مجدد در runهای بعدی |
