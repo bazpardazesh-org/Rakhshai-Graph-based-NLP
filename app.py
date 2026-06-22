@@ -1500,6 +1500,16 @@ def dataset_pipeline_ui(
 # ---------------------------------------------------------------------------
 # The Persian font Vazirmatn is loaded via <head> so it always renders
 HEAD_HTML = (
+    # Force light mode. Every surface in this UI (cards, info boxes, the poem
+    # results) is designed for a light background with dark text; under the OS
+    # dark preference Gradio recolors that text near-white and it vanishes on
+    # the white cards. Running in <head> before Gradio paints, this pins the
+    # theme to light via the ?__theme=light query param (one-time replace, no
+    # redirect loop) regardless of the visitor's system setting.
+    "<script>(function(){try{var u=new URL(window.location.href);"
+    "if(u.searchParams.get('__theme')!=='light'){"
+    "u.searchParams.set('__theme','light');window.location.replace(u.href);}}"
+    "catch(e){}})();</script>"
     "<link rel='preconnect' href='https://fonts.googleapis.com'>"
     "<link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>"
     "<link href='https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700"
@@ -1519,6 +1529,10 @@ _FONT_STACK = "'Vazirmatn','Vazir','IRANSans','Segoe UI',Tahoma,sans-serif"
 
 CUSTOM_CSS = f"""
 html, body, .gradio-container {{ direction: rtl !important; }}
+/* Pin the page canvas light. The forced light theme styles the components but
+   leaves <body> transparent, so under an OS dark preference the dark browser
+   canvas could show through below the content. */
+html, body {{ background-color: #f1f5f9 !important; }}
 .gradio-container, .gradio-container * {{ font-family: {_FONT_STACK} !important; }}
 /* Gradio wraps every Markdown/HTML component in a <div ... dir="ltr"> and marks
    the .prose body with dir="ltr". That HTML attribute forces Persian text to
@@ -1539,6 +1553,11 @@ html, body, .gradio-container {{ direction: rtl !important; }}
 .gradio-container textarea,
 .gradio-container input[type=text],
 .gradio-container input[type=number] {{ direction: rtl !important; text-align: right; }}
+/* Numeric range sliders stay LTR. The browser draws the slider fill with the
+   native accent-color; under the global RTL rule the thumb mirrors but the fill
+   does not, so the filled part lands on the wrong side of the handle. Forcing
+   LTR puts min on the left, max on the right, and the fill tracks the thumb. */
+.gradio-container .slider_input_container {{ direction: ltr !important; }}
 /* Tables */
 .gradio-container table {{ direction: rtl !important; }}
 .gradio-container th, .gradio-container td {{ text-align: right !important; }}
@@ -1568,6 +1587,47 @@ html, body, .gradio-container {{ direction: rtl !important; }}
   border-radius:12px; padding:16px 18px; margin: 4px 0; text-align: right; color:#1e293b; }}
 .rk-step h3 {{ margin:0 0 6px; color:#312e81; }}
 .rk-step b {{ color:#0f172a; }}
+
+/* ---- Features menubar (top-level gr.Tabs marked .rk-tabs) ----------------
+   Gradio 6 keeps the tab strip to a single row: it measures every tab's width
+   inside an aria-hidden `.tab-container.visually-hidden` sibling and collapses
+   whatever doesn't fit into a "⋯" overflow menu. With 12 features that hid most
+   of them. Hiding that measurement container makes every tab measure as 0-width,
+   so Gradio's own logic keeps all tabs in the live tablist — which we then let
+   wrap onto two rows, wrap in a card, and restyle as pill buttons. All rules use
+   the `> .tab-wrapper >` direct-child path so nested tab groups stay untouched. */
+.rk-tabs > .tab-wrapper > .tab-container.visually-hidden {{ display: none !important; }}
+.rk-tabs > .tab-wrapper {{
+  flex-wrap: wrap; gap: 8px;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px;
+  padding: 10px; margin-bottom: 14px;
+  box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 10px 24px rgba(15,23,42,.05);
+  /* Gradio pins the tab strip to a single row's height (32px). Once the tabs
+     wrap onto two rows the extra rows escape that fixed box and fall onto the
+     content below, so the bar must grow with its rows. */
+  height: auto !important;
+}}
+.rk-tabs > .tab-wrapper > .tab-container {{
+  flex-wrap: wrap !important; overflow: visible !important; height: auto !important;
+  gap: 8px; width: 100%; justify-content: center; border: 0 !important;
+}}
+.rk-tabs > .tab-wrapper > .overflow-menu {{ display: none !important; }}
+.rk-tabs > .tab-wrapper > .tab-container button {{
+  flex: 0 0 auto;
+  border: 1px solid #e2e8f0 !important; border-radius: 999px !important;
+  padding: 8px 16px !important; background: #fff; color: #334155;
+  font-size: 14px; font-weight: 500; line-height: 1.4; white-space: nowrap;
+  transition: background .15s, color .15s, border-color .15s, box-shadow .15s, transform .05s;
+}}
+.rk-tabs > .tab-wrapper > .tab-container button:hover {{
+  background: #eef2ff; border-color: #c7d2fe !important; color: #4338ca;
+}}
+.rk-tabs > .tab-wrapper > .tab-container button:active {{ transform: translateY(1px); }}
+.rk-tabs > .tab-wrapper > .tab-container button.selected {{
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  border-color: transparent !important; color: #fff;
+  box-shadow: 0 4px 12px rgba(79,70,229,.35);
+}}
 footer {{ display:none !important; }}
 """
 
@@ -1998,7 +2058,7 @@ def build_demo() -> gr.Blocks:
             with gr.Column(scale=4):
                 gr.HTML(_device_note())
 
-        with gr.Tabs():
+        with gr.Tabs(elem_classes="rk-tabs"):
             # ============================ Home ============================
             with gr.Tab("🏠 خانه"):
                 gr.Markdown(
