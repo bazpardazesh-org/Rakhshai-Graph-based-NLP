@@ -27,10 +27,8 @@ from __future__ import annotations
 
 import argparse
 import html
-import io
 import json
 import math
-import tempfile
 import threading
 import time
 import traceback
@@ -697,7 +695,6 @@ def train_graph_lm_ui(
     progress=gr.Progress(track_tqdm=False),
 ):
     """Generator that streams training progress live."""
-    status_id = "<div></div>"
     try:
         # Prepare the corpus
         lines: list[str] = []
