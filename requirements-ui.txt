@@ -1,0 +1,7 @@
+# پیش‌نیازهای رابط کاربری گرافیکی رخشای
+# نصب: pip install -r requirements-ui.txt
+gradio>=4.0
+scikit-learn>=1.2
+# برای ساخت مدل پیشنهادگر شعر از دیتاست گنجور
+# (اسکریپت scripts/build_ganjoor_recommender.py)
+datasets>=2.14

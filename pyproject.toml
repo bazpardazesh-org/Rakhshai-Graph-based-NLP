@@ -49,9 +49,12 @@ classifiers = [
 ml = ["scikit-learn>=1.2"]
 nlp = ["stanza>=1.6"]
 fa = ["faiss-cpu>=1.7.4"]
+ui = ["gradio>=4.0", "scikit-learn>=1.2"]
+data = ["datasets>=2.14"]
 docs = ["mkdocs>=1.5", "mkdocstrings-python>=1.7"]
 test = ["pytest>=7.0"]
 all = [
+    "datasets>=2.14",
     "faiss-cpu>=1.7.4",
     "scikit-learn>=1.2",
     "stanza>=1.6",

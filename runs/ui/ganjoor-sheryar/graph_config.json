@@ -1,0 +1,67 @@
+{
+  "window_size": 3,
+  "min_count": 2,
+  "weighting": "distance",
+  "min_edge_weight": 0.0,
+  "top_k": 20,
+  "directed": false,
+  "graph_scope": "document",
+  "context_node_type": "none",
+  "num_nodes": 2208,
+  "num_edges": 61576,
+  "enabled_relations": [
+    "cooccurrence",
+    "pmi"
+  ],
+  "relation_weights": {
+    "cooccurrence": 1.0,
+    "pmi": 1.0
+  },
+  "edge_types": {
+    "cooccurrence": 0,
+    "pmi": 1
+  },
+  "relation_edge_counts": {
+    "cooccurrence": 73744,
+    "pmi": 49408
+  },
+  "node_type_counts": {
+    "token": 2208
+  },
+  "semantic_similarity_threshold": 0.6,
+  "semantic_top_k": 4,
+  "semantic_method": "distributional",
+  "linguistic_backend": "auto",
+  "dependency_backend": "heuristic",
+  "topic_top_k": 8,
+  "build_batch_size": null,
+  "graph_build_batches": 1,
+  "cache_key": "b96f74155bc6729dcbb4bd36",
+  "cache_hit": false,
+  "build_seconds": 0.792202416996588,
+  "dynamic_graph": false,
+  "graph_source": "train",
+  "scalability": {
+    "cache_enabled": false,
+    "cache_hit": false,
+    "cache_key": "b96f74155bc6729dcbb4bd36",
+    "cache_path": null,
+    "build_seconds": 0.792202416996588,
+    "build_batch_size": null,
+    "graph_build_batches": 1,
+    "num_nodes": 2208,
+    "num_edges": 61576
+  },
+  "low_data_training": {
+    "text_augmentation": true,
+    "augmentation_ratio": 0.5,
+    "augmented_train_examples": 523,
+    "original_train_examples": 360,
+    "node_dropout": 0.05,
+    "edge_dropout": 0.1,
+    "subgraph_sampling_ratio": 0.9,
+    "contrastive_weight": 0.05,
+    "curriculum_learning": true,
+    "early_stopping_patience": 0
+  }
+}

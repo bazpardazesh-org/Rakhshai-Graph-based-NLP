@@ -461,6 +461,102 @@ python -m pip install pytest
 python -m pytest
 ```
 
+## 🖥️ Graphical UI
+
+The fastest way to see everything the project can do is a complete, fully
+Persian, right-to-left web interface in [`app.py`](app.py).
+
+### Launch the UI (easiest way)
+
+```bash
+# Option 1 — one-command launcher (installs prerequisites for you)
+./run_ui.sh
+
+# Option 2 — run directly
+pip install -r requirements-ui.txt   # or: pip install -e ".[ui]"
+python app.py
+```
+
+Then open **http://127.0.0.1:7860** in your browser (the launcher opens it for
+you automatically).
+
+### Installing prerequisites
+
+The launcher installs the **core** requirements and the UI for you automatically.
+Beyond those, the project has a few **optional packages** you can install only if
+you need the features they unlock:
+
+> ⚡ **To use the project at its full power, all prerequisites should be
+> installed.** The easiest way is to install them all at once:
+> `pip install -e ".[all]"`
+
+| Package | Install | Unlocks |
+| --- | --- | --- |
+| **scikit-learn** | `pip install "scikit-learn>=1.2"` | ML metrics, TF-IDF summarization, document graphs |
+| **stanza** | `pip install "stanza>=1.6"` | Advanced Persian NLP: POS tagging, lemmatization, dependency parsing |
+| **faiss-cpu** | `pip install "faiss-cpu>=1.7.4"` | Fast vector similarity search |
+
+> **Stanza** also needs its Persian language model the first time:
+> `python -m stanza.download fa`
+
+**Install everything at once** (all optional packages):
+
+```bash
+pip install -e ".[all]"
+```
+
+**Check what you already have** — this prints each optional package with whether
+it is installed or not (and the command to install the missing ones):
+
+```bash
+./run_ui.sh check
+```
+
+Example output:
+
+```
+Optional packages — install only the ones you need:
+
+  • scikit-learn — ML metrics, TF-IDF summarization, document graphs
+      ✅ installed
+  • stanza — advanced Persian NLP: POS, lemma, dependency parsing
+      ❌ not installed   →  python3 -m pip install "stanza>=1.6"
+  • faiss-cpu — fast vector similarity search
+      ❌ not installed   →  python3 -m pip install "faiss-cpu>=1.7.4"
+```
+
+### Controlling the server
+
+The `run_ui.sh` launcher gives you simple commands to start and stop the UI:
+
+```bash
+./run_ui.sh                 # start the UI
+./run_ui.sh --share         # start and create a temporary public link
+./run_ui.sh --port 8080     # start on a custom port
+./run_ui.sh stop            # stop the server and free the port
+./run_ui.sh restart         # stop, then start again
+./run_ui.sh status          # show whether it is running, and on which port
+./run_ui.sh help            # show all options
+```
+
+- **To stop while it is running**, press **`Ctrl + C`** in the same terminal —
+  this shuts the server down cleanly and frees the port. (Avoid `Ctrl + Z`; that
+  only *suspends* the process and keeps the port busy.)
+- **From another terminal**, you can stop it any time with `./run_ui.sh stop`.
+- If the port was left busy by a previous run, the launcher **frees it
+  automatically** before starting, so you never hit a "port already in use" error.
+
+> The launcher prints status messages in English because most terminals do not
+> render right-to-left Persian correctly. The web UI itself is fully Persian and
+> right-to-left.
+
+### What's inside the UI
+
+The UI bundles the Persian tokenizer, an interactive multi-relation text-graph
+viewer, **live-progress Graph-LM training**, graph-memory text generation,
+graph-based classification, the analytical tasks (summarization, recommendation,
+hate-speech), and a guided **"Full Power"** step-by-step tour.
+
 ## Quick Start
 
 ```python
