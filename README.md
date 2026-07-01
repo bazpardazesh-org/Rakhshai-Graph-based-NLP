@@ -304,9 +304,25 @@ nearby words and other documents.
 
 ## Main Components
 
+As of `2.1.0`, the Python API is marked stable (`API_STATUS = "stable"`,
+`__api_version__ = "2.1"`). Application code can import the supported surface
+directly from `rakhshai_graph_nlp` or from the explicit facade
+`rakhshai_graph_nlp.api`:
+
+```python
+from rakhshai_graph_nlp import TextGraphClassifier, build_text_graph
+from rakhshai_graph_nlp.api import GraphCausalLM, PersianTokenizer
+```
+
+The full step-by-step Python guide is in
+[`docs/api_usage.md`](docs/api_usage.md), and the stable reference is in
+[`docs/api.md`](docs/api.md).
+
 | Component | Description |
 | --- | --- |
+| `Graph` | Lightweight graph container with adjacency, node metadata, self-loops, degree and normalization helpers |
 | `TextGraphClassifier` | Main class for training, evaluation, prediction, saving, and loading text classification models |
+| `train_node_classifier` / `train_gcn_classifier` | Lower-level GNN node-classification training helpers |
 | `build_text_graph` | Builds a word-document graph with PMI and TF-IDF for TextGCN |
 | `build_cooccurrence_graph` | Builds word co-occurrence graphs with a word window |
 | `build_document_graph` | Builds document similarity graphs with TF-IDF or embeddings |
@@ -314,16 +330,24 @@ nearby words and other documents.
 | `build_semantic_graph` | Builds semantic graphs from lexical relations and embedding similarity |
 | `build_semantic_graph_from_farsnet` | Builds semantic graphs from FarsNet JSON/CSV/TSV output |
 | `load_farsnet_relations` | Loads FarsNet relations from a file and converts them into graph-usable relations |
+| `tokenize`, `tokenize_persian`, `PersianNormalizer` | Stable text tokenization and Persian normalization helpers |
+| `graph_to_data`, `build_feature_matrix` | Bridge dense graphs and Persian text features into PyTorch Geometric |
 | `PersianTokenizer` | Numeric LM tokenizer with half-space support, Persian cleanup, standalone punctuation tokens, numeric-separator and configurable hamza/ezafe normalization, a `<mask>` special token, and `word`/`char_chunk`/`bpe`/`unigram` modes (`unigram` is the operational default) |
 | `LMDataset` | Prepares `input_ids` and `target_ids` for next-token prediction |
 | `build_graph_lm_graph` | Builds a word co-occurrence graph from a corpus for Graph-LM |
 | `GraphCausalLM` | Persian language model with GNN encoder, gated graph-token fusion, and a modern decoder-only Transformer (RoPE, SwiGLU, RMSNorm, KV-cache generation) |
 | `RakhshaiGraphEncoder` | Graph-LM graph core with `gcn`, `graphsage`, `gat`, `rgcn`, and relation-aware encoding support |
+| `GraphMemoryArtifact` / `GraphMemoryConfig` | Prompt-aware graph memory used during generation |
+| `LMTrainer`, `LMTrainingConfig`, `train_graph_lm` | Stable Graph-LM training APIs with checkpointing, validation and perplexity |
+| `TextAugmentationConfig`, `augment_text`, `augment_graph_data` | Low-data text and graph regularization helpers |
+| `PoemRecommender`, `build_poem_index` | Graph-LM powered poem embedding, indexing and search |
 | `--graph-encoder none` | No-graph baseline for comparing against Graph-LM and measuring the true effect of GNN/fusion |
-| `LMTrainer` | LM-specific trainer with validation loss, perplexity, and complete checkpointing |
 | `GCNClassifier` | GCN model for node classification |
 | `GraphSAGEClassifier` | GraphSAGE model for neighborhood-based learning |
 | `GATClassifier` | GAT model with graph attention |
+| `textrank_summarise`, `gat_summarise` | Extractive summarization APIs |
+| `recommend_similar`, `HateSpeechDetector`, `compute_social_embeddings` | Recommendation, hate-speech detection and network-analysis APIs |
+| `accuracy`, `macro_f1`, `confusion_matrix` | Stable evaluation metrics |
 | `rgnn-cli` | Command-line tool for quick training and evaluation |
 
 ## Analytical Tasks

@@ -1,40 +1,49 @@
-"""Top level package for the Rakhshai Graph-based NLP library."""
+"""Top-level package for the stable Rakhshai Graph-based NLP API."""
+
+from __future__ import annotations
 
 from importlib import import_module
+from typing import Any
 
-__version__ = "2.0.2"
+from . import api as _api
 
-from .features.tokenize import split_sentences, tokenize
-from .graphs import sparse as graphs_sparse
-from .lm import GraphCausalLM, GraphLMConfig, PersianTokenizer
-from .metrics import accuracy, confusion_matrix, macro_f1
-from .tasks.classification import TextGraphClassifier
+__version__ = "2.1.0"
+API_STATUS = _api.API_STATUS
+API_VERSION = _api.API_VERSION
+STABLE_API_VERSION = _api.STABLE_API_VERSION
+__api_version__ = _api.__api_version__
+stable_api = _api.stable_api
 
-# Re-export models package
-from . import models
+_SUBPACKAGES = {
+    "api": "rakhshai_graph_nlp.api",
+    "features": "rakhshai_graph_nlp.features",
+    "graphs": "rakhshai_graph_nlp.graphs",
+    "lm": "rakhshai_graph_nlp.lm",
+    "models": "rakhshai_graph_nlp.models",
+    "tasks": "rakhshai_graph_nlp.tasks",
+}
 
 __all__ = [
     "__version__",
-    "TextGraphClassifier",
-    "PersianTokenizer",
-    "GraphCausalLM",
-    "GraphLMConfig",
-    "accuracy",
-    "confusion_matrix",
-    "macro_f1",
-    "tokenize",
-    "split_sentences",
-    "graphs",
-    "models",
+    "API_STATUS",
+    "API_VERSION",
+    "STABLE_API_VERSION",
+    "__api_version__",
+    "stable_api",
+    *_SUBPACKAGES,
+    *_api.stable_api(),
 ]
 
 
-def __getattr__(name: str):
-    if name == "graphs":
-        return import_module("rakhshai_graph_nlp.graphs")
+def __getattr__(name: str) -> Any:
+    if name in _SUBPACKAGES:
+        module = import_module(_SUBPACKAGES[name])
+        if name == "graphs":
+            module.sparse = import_module("rakhshai_graph_nlp.graphs.sparse")
+        globals()[name] = module
+        return module
+    if name in _api.stable_api():
+        value = getattr(_api, name)
+        globals()[name] = value
+        return value
     raise AttributeError(name)
-
-
-# expose sparse helpers
-graphs = import_module("rakhshai_graph_nlp.graphs")
-graphs.sparse = graphs_sparse

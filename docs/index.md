@@ -4,14 +4,18 @@ Rakhshai Graph-based NLP is a research library for representing Persian text as 
 
 ## Installation
 
-Requires Python 3.9 or newer. Optional extras enable additional features such as sparse graph operations, machine-learning dependencies and documentation tooling:
+Requires Python 3.10 or newer. Optional extras enable additional features such
+as machine-learning dependencies, linguistic parsing, UI, data and
+documentation tooling:
 
 ```bash
 pip install -e .
 # extras
-pip install -e .[sparse]
 pip install -e .[ml]
+pip install -e .[nlp]
 pip install -e .[fa]
+pip install -e .[ui]
+pip install -e .[data]
 pip install -e .[docs]
 ```
 
@@ -23,6 +27,9 @@ pip install -e .[docs]
 - **Persian Graph-LM path**: `PersianTokenizer`, `build_graph_lm_graph`, `GraphCausalLM` and `LMTrainer` provide a causal LM baseline with optional graph encoding and graph-token fusion. The stable V2 architecture is documented in [Rakhshai Graph-LM V2 Architecture](graph_lm_v2.md), the multi-relation graph is documented in [Rakhshai Multi-Relation Persian Graph](multi_relation_persian_graph.md), the encoder upgrade is documented in [Rakhshai Graph Reasoning Core](graph_reasoning_core.md), and the low-data engine is documented in [Rakhshai Low-Data Training Engine](low_data_training_engine.md).
 - **Training pipeline**: `rgnn-cli` can train on CSV, TSV or JSONL text datasets, create train/validation/test splits, report accuracy and macro-F1, and save model checkpoints.
 - **Application tasks**: `textrank_summarise`, `gat_summarise`, `recommend_similar`, `HateSpeechDetector` and others.
+- **Stable Python API**: package version `2.1.0` exposes API version `2.1`
+  through `rakhshai_graph_nlp` and `rakhshai_graph_nlp.api`; see
+  [Stable Public API](api.md) and the [Python API Usage Guide](api_usage.md).
 
 The strongest supported path today is Persian text classification. Semantic
 graphs, hate-speech detection and GAT-based summarisation now have executable
@@ -199,4 +206,14 @@ when aspect-level samples are flattened into rows.
 
 ## API reference
 
-::: rakhshai_graph_nlp
+The stable public API is documented in [Stable Public API](api.md), and
+step-by-step usage examples are available in the
+[Python API Usage Guide](api_usage.md). Prefer imports from
+`rakhshai_graph_nlp` or `rakhshai_graph_nlp.api` for application code:
+
+```python
+from rakhshai_graph_nlp import TextGraphClassifier, build_text_graph
+from rakhshai_graph_nlp.api import GraphCausalLM, PersianTokenizer
+```
+
+::: rakhshai_graph_nlp.api

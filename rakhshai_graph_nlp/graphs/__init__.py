@@ -44,6 +44,19 @@ from .semantic import (  # noqa: F401
     build_semantic_graph_from_farsnet,
     load_farsnet_relations,
 )
+from .sparse import add_self_loops, row_normalize_csr, to_undirected_coo  # noqa: F401
 from .text_graph import build_text_graph  # noqa: F401
 
-__all__ = ["Graph"]
+__all__ = [
+    "Graph",
+    "build_cooccurrence_graph",
+    "build_document_graph",
+    "build_dependency_graph",
+    "build_semantic_graph",
+    "build_semantic_graph_from_farsnet",
+    "build_text_graph",
+    "load_farsnet_relations",
+    "to_undirected_coo",
+    "add_self_loops",
+    "row_normalize_csr",
+]

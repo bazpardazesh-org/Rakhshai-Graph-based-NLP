@@ -5,4 +5,15 @@ This subpackage now wraps PyTorch Geometric primitives such as
 either CPUs or GPUs with minimal changes to the public API.
 """
 
-__all__ = ["gcn", "gat", "graphsage"]
+from .gat import GATClassifier, GATLayer
+from .gcn import GCNClassifier
+from .graphsage import GraphSAGE, GraphSAGEClassifier, GraphSAGELayer
+
+__all__ = [
+    "GCNClassifier",
+    "GATClassifier",
+    "GATLayer",
+    "GraphSAGE",
+    "GraphSAGEClassifier",
+    "GraphSAGELayer",
+]

@@ -293,9 +293,24 @@ rgnn-cli generate \
 
 ## مؤلفه‌های اصلی
 
+از نسخهٔ `2.1.0`، API پایتون پروژه پایدار است (`API_STATUS = "stable"` و
+`__api_version__ = "2.1"`). برای کدهای کاربردی می‌توانید سطح رسمی را مستقیم
+از `rakhshai_graph_nlp` یا از facade صریح `rakhshai_graph_nlp.api` import کنید:
+
+```python
+from rakhshai_graph_nlp import TextGraphClassifier, build_text_graph
+from rakhshai_graph_nlp.api import GraphCausalLM, PersianTokenizer
+```
+
+راهنمای کامل و قدم‌به‌قدم استفاده از API در
+[`docs/api_usage.md`](docs/api_usage.md) و مرجع پایدار API در
+[`docs/api.md`](docs/api.md) قرار دارد.
+
 | مؤلفه | توضیح |
 | --- | --- |
+| `Graph` | ظرف سبک گراف با adjacency، metadata گره‌ها، self-loop، درجه و نرمال‌سازی |
 | `TextGraphClassifier` | کلاس اصلی برای آموزش، ارزیابی، پیش‌بینی، ذخیره و بارگذاری مدل طبقه‌بندی متن |
+| `train_node_classifier` / `train_gcn_classifier` | helperهای سطح پایین‌تر برای آموزش طبقه‌بند گره با GNN |
 | `build_text_graph` | ساخت گراف واژه-سند با PMI و TF-IDF برای TextGCN |
 | `build_cooccurrence_graph` | ساخت گراف هم‌رخدادی واژه‌ها در پنجرهٔ لغتی |
 | `build_document_graph` | ساخت گراف شباهت سندها با TF-IDF یا embedding |
@@ -303,16 +318,24 @@ rgnn-cli generate \
 | `build_semantic_graph` | ساخت گراف معنایی از روابط واژگانی و شباهت embedding |
 | `build_semantic_graph_from_farsnet` | ساخت گراف معنایی از خروجی JSON/CSV/TSV مربوط به FarsNet |
 | `load_farsnet_relations` | خواندن روابط FarsNet از فایل و تبدیل آن به روابط قابل استفاده در گراف |
+| `tokenize`، `tokenize_persian`، `PersianNormalizer` | helperهای پایدار برای توکن‌سازی و نرمال‌سازی فارسی |
+| `graph_to_data`، `build_feature_matrix` | اتصال گراف‌های dense و ویژگی‌های متنی فارسی به PyTorch Geometric |
 | `PersianTokenizer` | tokenizer عددی مخصوص LM با پشتیبانی از نیم‌فاصله، تمیزسازی فارسی، توکن مستقل برای علائم سجاوندی، نرمال‌سازی جداکننده‌های عدد و فولد قابل‌تنظیم همزه/اضافه، توکن ویژهٔ `<mask>`، و حالت‌های `word`/`char_chunk`/`bpe`/`unigram` (پیش‌فرض عملیاتی `unigram`) |
 | `LMDataset` | آماده‌سازی `input_ids` و `target_ids` برای پیش‌بینی توکن بعدی |
 | `build_graph_lm_graph` | ساخت گراف هم‌رخدادی واژگان از corpus برای Graph-LM |
 | `GraphCausalLM` | مدل زبانی فارسی با GNN encoder، gated graph-token fusion و یک Transformer decoder مدرن (RoPE، SwiGLU، RMSNorm، تولید با KV-cache) |
 | `RakhshaiGraphEncoder` | هستهٔ گرافی Graph-LM با پشتیبانی از `gcn`، `graphsage`، `gat`، `rgcn` و relation-aware encoding |
+| `GraphMemoryArtifact` / `GraphMemoryConfig` | حافظهٔ گرافی مرتبط با prompt برای زمان تولید |
+| `LMTrainer`، `LMTrainingConfig`، `train_graph_lm` | APIهای پایدار آموزش Graph-LM با checkpoint، validation و perplexity |
+| `TextAugmentationConfig`، `augment_text`، `augment_graph_data` | ابزارهای regularization متن و گراف برای دادهٔ کم |
+| `PoemRecommender`، `build_poem_index` | embedding، index و جست‌وجوی شعر با Graph-LM |
 | `--graph-encoder none` | baseline بدون گراف برای مقایسه با Graph-LM و سنجش اثر واقعی GNN/fusion |
-| `LMTrainer` | trainer مخصوص LM با validation loss، perplexity و checkpoint کامل |
 | `GCNClassifier` | مدل GCN برای طبقه‌بندی گره‌ها |
 | `GraphSAGEClassifier` | مدل GraphSAGE برای یادگیری از ساختار همسایگی |
 | `GATClassifier` | مدل GAT با مکانیزم attention روی گراف |
+| `textrank_summarise`، `gat_summarise` | APIهای خلاصه‌سازی استخراجی |
+| `recommend_similar`، `HateSpeechDetector`، `compute_social_embeddings` | APIهای توصیه‌گر، تشخیص نفرت‌پراکنی و تحلیل شبکه |
+| `accuracy`، `macro_f1`، `confusion_matrix` | metricهای پایدار ارزیابی |
 | `rgnn-cli` | ابزار خط فرمان برای آموزش و ارزیابی سریع |
 
 ## وظایف تحلیلی

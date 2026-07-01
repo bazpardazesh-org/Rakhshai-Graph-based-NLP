@@ -9,10 +9,27 @@ are implemented using NumPy.  You can plug in your own models by
 subclassing the provided classes.
 """
 
+from .classification import (
+    TextGraphClassifier,
+    TextGraphClassifierConfig,
+    train_gcn_classifier,
+    train_node_classifier,
+)
+from .hate_speech import HateSpeechDetector, contains_hate_speech
+from .recommendation import recommend_similar
+from .social_analysis import compute_social_embeddings
+from .summarization import GATSummarizer, gat_summarise, textrank_summarise
+
 __all__ = [
-    "classification",
-    "summarization",
-    "recommendation",
-    "hate_speech",
-    "social_analysis",
+    "TextGraphClassifier",
+    "TextGraphClassifierConfig",
+    "train_node_classifier",
+    "train_gcn_classifier",
+    "textrank_summarise",
+    "gat_summarise",
+    "GATSummarizer",
+    "recommend_similar",
+    "contains_hate_speech",
+    "HateSpeechDetector",
+    "compute_social_embeddings",
 ]
