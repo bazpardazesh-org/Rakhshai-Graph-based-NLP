@@ -85,6 +85,13 @@ line-length = 88
 [tool.mypy]
 ignore_errors = true
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:`torch_geometric\\.distributed` has been deprecated since 2\\.7\\.0.*:DeprecationWarning:torch_geometric\\.llm\\.utils\\.backend_utils",
+    "ignore:`torch\\.jit\\.script` is not supported in Python 3\\.14\\+.*:DeprecationWarning:torch\\.jit\\._script",
+    "ignore:Failing to pass a value to the 'type_params' parameter of 'typing\\._eval_type'.*:DeprecationWarning:torch_geometric\\.inspector",
+]
+
 [tool.setuptools.packages.find]
 include = ["rakhshai_graph_nlp*"]
 exclude = ["runs*", "tests*", "docs*", "benchmarks*"]

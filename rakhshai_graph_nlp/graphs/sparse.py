@@ -19,7 +19,7 @@ def to_undirected_coo(A: sparse.spmatrix) -> sparse.coo_matrix:
     if not sparse.isspmatrix_coo(A):
         A = A.tocoo()
     upper = sparse.triu(A)
-    result = upper + upper.T - sparse.diags(A.diagonal())
+    result = upper + upper.T - sparse.diags(A.diagonal(), dtype=A.dtype)
     return result.tocoo()
 
 

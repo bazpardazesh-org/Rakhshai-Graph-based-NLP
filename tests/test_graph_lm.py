@@ -12,7 +12,11 @@ from rakhshai_graph_nlp.lm import (
     PersianTokenizer,
     build_graph_lm_graph,
 )
-from rakhshai_graph_nlp.lm.model import RakhshaiGraphEncoder, WeightedSAGEConv
+from rakhshai_graph_nlp.lm.model import (
+    RakhshaiGraphEncoder,
+    WeightedRGCNConv,
+    WeightedSAGEConv,
+)
 from rakhshai_graph_nlp.lm.trainer import LMTrainer, LMTrainingConfig, _split_corpus, train_graph_lm
 
 
@@ -132,7 +136,7 @@ def test_untrained_graph_lm_starts_near_uniform_loss():
     output = model(batch, labels=batch)
 
     uniform_loss = torch.log(torch.tensor(float(tokenizer.vocab_size)))
-    assert float(output["loss"]) < float(uniform_loss) + 1.0
+    assert float(output["loss"].detach()) < float(uniform_loss) + 1.0
     assert torch.equal(
         model.token_embedding.weight[tokenizer.pad_id],
         torch.zeros(model.config.d_model),
@@ -682,9 +686,18 @@ def test_graph_encoders_are_edge_weight_aware():
     sage = RakhshaiGraphEncoder(
         GraphLMConfig(vocab_size=8, d_model=8, graph_encoder="graphsage", graph_hidden_dim=4)
     )
+    rgcn = RakhshaiGraphEncoder(
+        GraphLMConfig(
+            vocab_size=8,
+            d_model=8,
+            graph_encoder="rgcn",
+            graph_hidden_dim=4,
+        )
+    )
 
     assert gat.conv1.edge_dim == 1
     assert isinstance(sage.conv1, WeightedSAGEConv)
+    assert isinstance(rgcn.conv1, WeightedRGCNConv)
 
 
 def test_phase4_relation_embedding_uses_edge_type_signal():
@@ -740,6 +753,40 @@ def test_phase4_rgcn_handles_missing_edge_type():
     output = encoder(torch.eye(3, 8), graph)
 
     assert output.shape == (3, 8)
+
+
+def test_phase4_rgcn_uses_per_edge_weight_signal():
+    from torch_geometric.data import Data
+
+    torch.manual_seed(0)
+    encoder = RakhshaiGraphEncoder(
+        GraphLMConfig(
+            vocab_size=8,
+            d_model=8,
+            graph_encoder="rgcn",
+            graph_hidden_dim=8,
+            graph_edge_types=2,
+            dropout=0.0,
+        )
+    )
+    encoder.eval()
+    node_features = torch.eye(3, 8)
+    edge_index = torch.tensor(
+        [[0, 1, 2, 0], [2, 2, 0, 1]],
+        dtype=torch.long,
+    )
+    edge_type = torch.zeros(edge_index.size(1), dtype=torch.long)
+    graph_a = Data(edge_index=edge_index, num_nodes=3)
+    graph_a.edge_type = edge_type
+    graph_a.edge_weight = torch.ones(edge_index.size(1))
+    graph_b = Data(edge_index=edge_index, num_nodes=3)
+    graph_b.edge_type = edge_type
+    graph_b.edge_weight = torch.tensor([3.0, 0.2, 1.0, 1.0])
+
+    out_a = encoder(node_features, graph_a)
+    out_b = encoder(node_features, graph_b)
+
+    assert not torch.allclose(out_a, out_b)
 
 
 def test_phase4_node_type_metadata_survives_checkpoint(tmp_path):

@@ -15,7 +15,10 @@ The Graph-LM path still supports:
 
 `rgcn` is the Phase 4 relation-aware encoder. It consumes `edge_type` directly
 and uses one relation channel per graph relation saved by the Phase 3 graph
-builder.
+builder. Its message passing also consumes each edge's `edge_weight`, so
+weighted relations such as PMI, co-occurrence distance and manually scaled
+relation weights affect the corresponding edge instead of being collapsed into a
+single graph-level scale.
 
 ## Relation Modes
 
@@ -97,4 +100,3 @@ Track:
 - epoch time
 - graph node/edge counts
 - saved `graph_edge_types`
-

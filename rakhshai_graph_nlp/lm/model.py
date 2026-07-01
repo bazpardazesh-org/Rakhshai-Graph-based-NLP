@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch_geometric.data import Data
-from torch_geometric.nn import GATConv, GCNConv, MessagePassing, RGCNConv
+from torch_geometric.nn import GATConv, GCNConv, MessagePassing
 
 from .graph_memory import GraphMemoryArtifact, GraphMemoryConfig
 from .tokenizer import PersianTokenizer
@@ -131,6 +131,66 @@ class RelationWeightedSAGEConv(MessagePassing):
         return x_j * edge_weight.unsqueeze(-1)
 
 
+class WeightedRGCNConv(MessagePassing):
+    """R-GCN message passing with per-edge relation ids and edge weights."""
+
+    def __init__(self, in_channels: int, out_channels: int, num_relations: int):
+        super().__init__(aggr="add")
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.num_relations = max(1, num_relations)
+        self.weight = nn.Parameter(
+            torch.empty(self.num_relations, in_channels, out_channels)
+        )
+        self.root = nn.Linear(in_channels, out_channels, bias=False)
+        self.bias = nn.Parameter(torch.zeros(out_channels))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        nn.init.xavier_uniform_(self.weight)
+        self.root.reset_parameters()
+        nn.init.zeros_(self.bias)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_type: torch.Tensor | None = None,
+        edge_weight: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        num_edges = edge_index.size(1)
+        if edge_type is None:
+            edge_type = torch.zeros(num_edges, dtype=torch.long, device=x.device)
+        else:
+            edge_type = edge_type.to(x.device).long().clamp(0, self.num_relations - 1)
+        if edge_weight is None:
+            edge_weight = x.new_ones((num_edges,))
+        else:
+            edge_weight = edge_weight.to(device=x.device, dtype=x.dtype)
+
+        out = self.propagate(
+            edge_index,
+            x=x,
+            edge_type=edge_type,
+            edge_weight=edge_weight,
+        )
+        dst = edge_index[1]
+        denom = x.new_zeros((x.size(0),))
+        denom.scatter_add_(0, dst, edge_weight.abs())
+        out = out / denom.clamp_min(1e-12).unsqueeze(-1)
+        return out + self.root(x) + self.bias
+
+    def message(
+        self,
+        x_j: torch.Tensor,
+        edge_type: torch.Tensor,
+        edge_weight: torch.Tensor,
+    ) -> torch.Tensor:
+        relation_weight = self.weight[edge_type]
+        message = torch.bmm(x_j.unsqueeze(1), relation_weight).squeeze(1)
+        return message * edge_weight.unsqueeze(-1)
+
+
 class RakhshaiGraphEncoder(nn.Module):
     """GNN encoder that creates graph-aware token embeddings."""
 
@@ -180,15 +240,15 @@ class RakhshaiGraphEncoder(nn.Module):
                 edge_dim=config.graph_hidden_dim if relation_mode == "embedding" else 1,
             )
         elif encoder == "rgcn":
-            self.conv1 = RGCNConv(
+            self.conv1 = WeightedRGCNConv(
                 config.d_model,
                 config.graph_hidden_dim,
-                num_relations=max(1, config.graph_edge_types),
+                max(1, config.graph_edge_types),
             )
-            self.conv2 = RGCNConv(
+            self.conv2 = WeightedRGCNConv(
                 config.graph_hidden_dim,
                 config.d_model,
-                num_relations=max(1, config.graph_edge_types),
+                max(1, config.graph_edge_types),
             )
         else:
             raise ValueError("graph_encoder must be one of: gcn, graphsage, gat, rgcn")
@@ -271,9 +331,7 @@ class RakhshaiGraphEncoder(nn.Module):
             edge_attr = self._relation_edge_attr(edge_type, edge_weight)
             x = self.conv1(node_features, edge_index, edge_attr=edge_attr)
         elif self.encoder == "rgcn":
-            x = self.conv1(node_features, edge_index, edge_type)
-            if edge_weight is not None:
-                x = x * edge_weight.mean().clamp_min(1e-6)
+            x = self.conv1(node_features, edge_index, edge_type, edge_weight)
         elif self.relation_mode == "embedding":
             edge_attr = self._relation_edge_attr(edge_type, edge_weight)
             x = self.conv1(node_features, edge_index, edge_attr, edge_weight)
@@ -287,9 +345,7 @@ class RakhshaiGraphEncoder(nn.Module):
             edge_attr = self._relation_edge_attr(edge_type, edge_weight, hidden=True)
             node_embeddings = self.conv2(x, edge_index, edge_attr=edge_attr)
         elif self.encoder == "rgcn":
-            node_embeddings = self.conv2(x, edge_index, edge_type)
-            if edge_weight is not None:
-                node_embeddings = node_embeddings * edge_weight.mean().clamp_min(1e-6)
+            node_embeddings = self.conv2(x, edge_index, edge_type, edge_weight)
         elif self.relation_mode == "embedding":
             edge_attr = self._relation_edge_attr(edge_type, edge_weight, hidden=True)
             node_embeddings = self.conv2(x, edge_index, edge_attr, edge_weight)
