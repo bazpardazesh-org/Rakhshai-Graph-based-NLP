@@ -8,6 +8,8 @@ nav:
   - Multi-Relation Persian Graph: multi_relation_persian_graph.md
   - Graph Reasoning Core: graph_reasoning_core.md
   - Low-Data Training Engine: low_data_training_engine.md
+  - MCP Integration: mcp.md
+  - MCP Single Poem Evaluation: mcp_single_poem_evaluation.md
 plugins:
   - search
   - mkdocstrings:

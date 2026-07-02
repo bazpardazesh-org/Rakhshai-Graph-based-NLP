@@ -29,9 +29,9 @@ The company’s knowledge-based status can be verified through the official know
 - **Official inquiry link:** [Knowledge-Based Companies Inquiry System](https://pub.daneshbonyan.ir/dashboard)
 - **Company national ID:** `14009192677`
 
-> Company: Aria Haman Mehr Parse  
-> National ID: `14009192677`  
-> Product: Graph-Based NLP Service Library (Rakhshai-Graph-based-NLP)  
+> Company: Aria Haman Mehr Parse
+> National ID: `14009192677`
+> Product: Graph-Based NLP Service Library (Rakhshai-Graph-based-NLP)
 > Field: Persian NLP, graph-based text modeling, and AI infrastructure
 
 ## Rakhshai V2
@@ -125,6 +125,83 @@ Mehr Parseh, and is released under the MIT license.
 - **Controllable text generation:** The `generate` command supports options
   such as `--temperature`, `--top-k`, `--min-new-tokens`, and
   `--repetition-penalty`.
+
+## MCP Support in Rakhshai Graph-based NLP
+
+MCP support has been added as a complementary capability to make it easier to
+connect the project to external tools, services, and models. This feature is
+especially useful for building agents and enables a more structured, extensible,
+and controllable interaction with different parts of the project.
+
+### Capabilities Exposed Through MCP
+
+- Persian text analysis with concept, keyword, and signal extraction
+- Knowledge graph construction from Persian text with nodes, edges, relations,
+  and weights
+- Graph-based summarization using important nodes and relations
+- Graph Memory retrieval for relevant evidence
+- Response or analysis generation using Graph-LM and graph evidence
+- Explainable outputs through graph nodes, relations, and reasoning paths
+- Controlled access to models, graphs, runs, reports, and project documentation
+- Integration with agents, IDEs, chatbots, and intelligent workflows
+
+### MCP Evaluation Report With OpenAI Model
+
+The main MCP guide is available here:
+
+[`docs/mcp.md`](docs/mcp.md)
+
+The full evaluation report is available here:
+
+[`docs/mcp_single_poem_evaluation.md`](docs/mcp_single_poem_evaluation.md)
+
+Persian poetry was selected for this MCP test because it is harder for AI models
+to understand than ordinary Persian prose: the model has to interpret symbols,
+implicit meaning, and relationships between images such as mirror, shadow, name,
+lamp, river, thirst, home, and key.
+
+**Golden Test Insight:**
+
+**In this single-sample evaluation, Rakhshai Graph-based NLP MCP improved the
+Persian poetry analysis quality by about 19%. It also made the model's response
+four times stronger than the direct baseline in terms of using extracted graph
+evidence for better Persian text analysis.**
+
+This test was performed using OpenAI's `gpt-5.4` model.
+
+### API Setup For Running The Test
+
+To run the test, users need a valid OpenAI API key. Add it to `.env.local` in
+the project root:
+
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+This file should not be committed to git and is already ignored through
+`.gitignore`.
+
+Install the optional OpenAI dependency too:
+
+```bash
+python -m pip install -e ".[openai]"
+```
+
+### Re-running The Test
+
+After setting the API key, users can re-run the test with:
+
+```bash
+python scripts/evaluate_openai_mcp_persian.py \
+  --model gpt-5.4 \
+  --temperature 0 \
+  --top-p 1 \
+  --seed 42 \
+  --max-output-tokens 3000 \
+  --direct-manual-scores 5,5,4,3,4,0 \
+  --mcp-manual-scores 5,5,5,5,5,0 \
+  --report-path docs/mcp_single_poem_evaluation.md
+```
 
 ## Rakhshai Graph-LM Technical Signature
 

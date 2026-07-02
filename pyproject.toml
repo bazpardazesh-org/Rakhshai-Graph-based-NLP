@@ -52,10 +52,14 @@ fa = ["faiss-cpu>=1.7.4"]
 ui = ["gradio>=4.0", "scikit-learn>=1.2"]
 data = ["datasets>=2.14"]
 docs = ["mkdocs>=1.5", "mkdocstrings-python>=1.7"]
+mcp = ["mcp[cli]>=1.27,<2"]
+openai = ["openai>=1.0"]
 test = ["pytest>=7.0"]
 all = [
     "datasets>=2.14",
     "faiss-cpu>=1.7.4",
+    "mcp[cli]>=1.27,<2",
+    "openai>=1.0",
     "scikit-learn>=1.2",
     "stanza>=1.6",
 ]
@@ -75,6 +79,7 @@ Issues = "https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/issues"
 
 [project.scripts]
 rgnn-cli = "rakhshai_graph_nlp.cli:main"
+rakhshai-mcp = "rakhshai_mcp.server:main"
 
 [tool.ruff]
 line-length = 88
@@ -93,5 +98,5 @@ filterwarnings = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["rakhshai_graph_nlp*"]
+include = ["rakhshai_graph_nlp*", "rakhshai_mcp*"]
 exclude = ["runs*", "tests*", "docs*", "benchmarks*"]

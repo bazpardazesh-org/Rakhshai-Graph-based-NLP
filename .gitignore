@@ -11,5 +11,13 @@ __pycache__/
 # Gradio runtime cache
 .gradio/
 
+# Evaluation outputs
+runs/openai_mcp_eval/*.json
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
 # macOS Finder metadata
 .DS_Store
