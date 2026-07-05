@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import json
-import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -12,7 +11,6 @@ from typing import Any, Sequence
 
 import torch
 
-from .dataset import LMDataset
 from .model import GraphCausalLM, perplexity
 from .tokenizer import PersianTokenizer
 
@@ -283,4 +281,3 @@ def export_human_review(
         "csv": str(csv_path),
         "schema": str(schema_path),
     }
-

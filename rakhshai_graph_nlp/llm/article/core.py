@@ -17,7 +17,7 @@ import torch
 
 from ...lm.graph_builder import build_graph_lm_graph
 from ...lm.graph_memory import GraphMemoryArtifact, GraphMemoryConfig
-from ...lm.model import GenerationConfig, GraphCausalLM, GraphLMConfig
+from ...lm.model import GraphCausalLM, GraphLMConfig
 from ...lm.tokenizer import PersianTokenizer
 from ...lm.trainer import LMTrainingConfig, train_graph_lm
 
