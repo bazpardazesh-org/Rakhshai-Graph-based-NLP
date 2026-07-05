@@ -17,7 +17,7 @@ from importlib import import_module
 from typing import Any
 
 API_STATUS = "stable"
-API_VERSION = "2.1"
+API_VERSION = "2.2"
 STABLE_API_VERSION = API_VERSION
 __api_version__ = API_VERSION
 
@@ -176,6 +176,9 @@ _STABLE_EXPORTS: dict[str, tuple[str, str]] = {
     "macro_f1": ("rakhshai_graph_nlp.metrics", "macro_f1"),
     "confusion_matrix": ("rakhshai_graph_nlp.metrics", "confusion_matrix"),
     # Graph-LM, training and generation
+    "CorpusBuildConfig": ("rakhshai_graph_nlp.lm.corpus", "CorpusBuildConfig"),
+    "build_lm_corpus": ("rakhshai_graph_nlp.lm.corpus", "build_lm_corpus"),
+    "persian_ratio": ("rakhshai_graph_nlp.lm.corpus", "persian_ratio"),
     "PersianTokenizer": ("rakhshai_graph_nlp.lm.tokenizer", "PersianTokenizer"),
     "LMDataset": ("rakhshai_graph_nlp.lm.dataset", "LMDataset"),
     "LMLoaders": ("rakhshai_graph_nlp.lm.dataset", "LMLoaders"),
@@ -183,6 +186,33 @@ _STABLE_EXPORTS: dict[str, tuple[str, str]] = {
         "rakhshai_graph_nlp.lm.dataset",
         "build_lm_dataloaders",
     ),
+    "DistributedTrainingInfo": (
+        "rakhshai_graph_nlp.lm.distributed",
+        "DistributedTrainingInfo",
+    ),
+    "get_distributed_info": (
+        "rakhshai_graph_nlp.lm.distributed",
+        "get_distributed_info",
+    ),
+    "maybe_wrap_distributed": (
+        "rakhshai_graph_nlp.lm.distributed",
+        "maybe_wrap_distributed",
+    ),
+    "NativeEvalConfig": ("rakhshai_graph_nlp.lm.eval", "NativeEvalConfig"),
+    "evaluate_lm_checkpoint": (
+        "rakhshai_graph_nlp.lm.eval",
+        "evaluate_lm_checkpoint",
+    ),
+    "export_human_review": ("rakhshai_graph_nlp.lm.eval", "export_human_review"),
+    "score_prompt_completion": (
+        "rakhshai_graph_nlp.lm.eval",
+        "score_prompt_completion",
+    ),
+    "score_texts": ("rakhshai_graph_nlp.lm.eval", "score_texts"),
+    "TokenShardConfig": ("rakhshai_graph_nlp.lm.shards", "TokenShardConfig"),
+    "TokenShardDataset": ("rakhshai_graph_nlp.lm.shards", "TokenShardDataset"),
+    "write_token_shards": ("rakhshai_graph_nlp.lm.shards", "write_token_shards"),
+    "tokenizer_audit": ("rakhshai_graph_nlp.lm.shards", "tokenizer_audit"),
     "GraphLMGraph": ("rakhshai_graph_nlp.lm.graph_builder", "GraphLMGraph"),
     "build_graph_lm_graph": (
         "rakhshai_graph_nlp.lm.graph_builder",
@@ -204,9 +234,41 @@ _STABLE_EXPORTS: dict[str, tuple[str, str]] = {
         "rakhshai_graph_nlp.lm.graph_memory",
         "RetrievedGraphContext",
     ),
+    "LMGraphAblationConfig": (
+        "rakhshai_graph_nlp.lm.graph_scaling",
+        "LMGraphAblationConfig",
+    ),
+    "run_lm_graph_ablation": (
+        "rakhshai_graph_nlp.lm.graph_scaling",
+        "run_lm_graph_ablation",
+    ),
+    "write_graph_feature_store": (
+        "rakhshai_graph_nlp.lm.graph_scaling",
+        "write_graph_feature_store",
+    ),
     "GraphLMConfig": ("rakhshai_graph_nlp.lm.model", "GraphLMConfig"),
     "GenerationConfig": ("rakhshai_graph_nlp.lm.model", "GenerationConfig"),
     "GraphCausalLM": ("rakhshai_graph_nlp.lm.model", "GraphCausalLM"),
+    "ModelProfile": ("rakhshai_graph_nlp.lm.profiles", "ModelProfile"),
+    "MODEL_PROFILES": ("rakhshai_graph_nlp.lm.profiles", "MODEL_PROFILES"),
+    "CONTEXT_PRESETS": ("rakhshai_graph_nlp.lm.profiles", "CONTEXT_PRESETS"),
+    "available_model_profiles": (
+        "rakhshai_graph_nlp.lm.profiles",
+        "available_model_profiles",
+    ),
+    "build_graph_lm_config_from_profile": (
+        "rakhshai_graph_nlp.lm.profiles",
+        "build_graph_lm_config_from_profile",
+    ),
+    "RunRegistryConfig": ("rakhshai_graph_nlp.lm.registry", "RunRegistryConfig"),
+    "build_run_report": ("rakhshai_graph_nlp.lm.registry", "build_run_report"),
+    "hash_file": ("rakhshai_graph_nlp.lm.registry", "hash_file"),
+    "hash_json": ("rakhshai_graph_nlp.lm.registry", "hash_json"),
+    "write_run_registry": ("rakhshai_graph_nlp.lm.registry", "write_run_registry"),
+    "SFTConfig": ("rakhshai_graph_nlp.lm.sft", "SFTConfig"),
+    "format_sft_record": ("rakhshai_graph_nlp.lm.sft", "format_sft_record"),
+    "load_sft_texts": ("rakhshai_graph_nlp.lm.sft", "load_sft_texts"),
+    "train_sft": ("rakhshai_graph_nlp.lm.sft", "train_sft"),
     "RakhshaiGraphEncoder": (
         "rakhshai_graph_nlp.lm.model",
         "RakhshaiGraphEncoder",
@@ -224,6 +286,10 @@ _STABLE_EXPORTS: dict[str, tuple[str, str]] = {
     "LMTrainer": ("rakhshai_graph_nlp.lm.trainer", "LMTrainer"),
     "LMTrainingConfig": ("rakhshai_graph_nlp.lm.trainer", "LMTrainingConfig"),
     "train_graph_lm": ("rakhshai_graph_nlp.lm.trainer", "train_graph_lm"),
+    "train_graph_lm_from_token_shards": (
+        "rakhshai_graph_nlp.lm.trainer",
+        "train_graph_lm_from_token_shards",
+    ),
     "TextAugmentationConfig": (
         "rakhshai_graph_nlp.lm.augmentation",
         "TextAugmentationConfig",
@@ -254,6 +320,48 @@ _STABLE_EXPORTS: dict[str, tuple[str, str]] = {
     "list_poem_recommenders": (
         "rakhshai_graph_nlp.lm.poem_recommender",
         "list_poem_recommenders",
+    ),
+    # Native Persian article-writing layer
+    "ArticleCorpusConfig": (
+        "rakhshai_graph_nlp.llm.article",
+        "ArticleCorpusConfig",
+    ),
+    "ArticleAuditConfig": (
+        "rakhshai_graph_nlp.llm.article",
+        "ArticleAuditConfig",
+    ),
+    "ArticleAblationConfig": (
+        "rakhshai_graph_nlp.llm.article",
+        "ArticleAblationConfig",
+    ),
+    "ArticleTrainingConfig": (
+        "rakhshai_graph_nlp.llm.article",
+        "ArticleTrainingConfig",
+    ),
+    "ArticleGenerationConfig": (
+        "rakhshai_graph_nlp.llm.article",
+        "ArticleGenerationConfig",
+    ),
+    "PersianArticle": ("rakhshai_graph_nlp.llm.article", "PersianArticle"),
+    "prepare_article_corpus": (
+        "rakhshai_graph_nlp.llm.article",
+        "prepare_article_corpus",
+    ),
+    "audit_article_corpus": (
+        "rakhshai_graph_nlp.llm.article",
+        "audit_article_corpus",
+    ),
+    "train_article_llm": (
+        "rakhshai_graph_nlp.llm.article",
+        "train_article_llm",
+    ),
+    "run_article_ablation": (
+        "rakhshai_graph_nlp.llm.article",
+        "run_article_ablation",
+    ),
+    "generate_persian_article": (
+        "rakhshai_graph_nlp.llm.article",
+        "generate_persian_article",
     ),
 }
 

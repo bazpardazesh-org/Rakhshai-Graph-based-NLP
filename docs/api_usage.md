@@ -43,7 +43,7 @@ You can inspect the active API contract:
 import rakhshai_graph_nlp as rgnn
 
 print(rgnn.API_STATUS)       # stable
-print(rgnn.__api_version__)  # 2.1
+print(rgnn.__api_version__)  # 2.2
 print(rgnn.stable_api())     # names covered by the stable contract
 ```
 
@@ -528,7 +528,137 @@ for hit in recommender.search("ای ساقی بیا", top_k=3):
     print(hit["score"], hit.get("poet"), hit.get("poem"))
 ```
 
-## 17. CLI And API Together
+## 17. Native Persian Article LLM
+
+The article workflow is a high-level LLM pipeline in
+`rakhshai_graph_nlp.llm.article`. It uses the lower-level
+`rakhshai_graph_nlp.lm` Graph-LM engine internally, but keeps article-specific
+dataset preparation, training defaults and structured output in the workflow
+namespace.
+
+Prepare an article dataset, train an article-focused Graph-LM checkpoint and
+generate a structured article:
+
+```python
+from rakhshai_graph_nlp.llm.article import (
+    ArticleAblationConfig,
+    ArticleAuditConfig,
+    ArticleCorpusConfig,
+    ArticleGenerationConfig,
+    ArticleTrainingConfig,
+    audit_article_corpus,
+    generate_persian_article,
+    prepare_article_corpus,
+    run_article_ablation,
+    train_article_llm,
+)
+
+audit = audit_article_corpus(
+    ArticleAuditConfig(
+        input_path="data/persian_articles.jsonl",
+        output_dir="runs/articles-audit",
+        min_body_chars=400,
+        tokenizer_types=["word", "bpe", "unigram"],
+    )
+)
+
+manifest = prepare_article_corpus(
+    ArticleCorpusConfig(
+        input_path="data/persian_articles.jsonl",
+        output_dir="runs/articles-prepared",
+        min_body_chars=400,
+    )
+)
+
+train_article_llm(
+    ArticleTrainingConfig(
+        corpus_path=manifest["corpus_path"],
+        output_dir="runs/article-llm-fa",
+        device="cuda",
+        amp=True,
+    )
+)
+
+# Optional native graph ablation. Each variant trains from the same corpus and
+# records validation metrics plus zero-gate/fusion statistics.
+run_article_ablation(
+    ArticleAblationConfig(
+        training_config=ArticleTrainingConfig(
+            corpus_path=manifest["corpus_path"],
+            output_dir="runs/article-ablation-template",
+            epochs=3,
+            device="cuda",
+            amp=True,
+        ),
+        output_dir="runs/article-ablation-fa",
+        graph_encoders=["none", "gat", "rgcn"],
+        graph_scopes=["document", "sentence"],
+        probe_topic="آینده آموزش فارسی",
+    )
+)
+
+# Prepared corpus paths reuse sibling train.txt and validation.txt.
+article = generate_persian_article(
+    ArticleGenerationConfig(
+        model_dir="runs/article-llm-fa",
+        topic="آینده آموزش فارسی",
+        sections=4,
+    )
+)
+
+print(article.full_markdown)
+print(article.to_json())
+```
+
+After `train_article_llm` returns, the reusable checkpoint is the directory
+passed as `output_dir`. For later application code, you do not need to prepare
+or train again; load that directory with `ArticleGenerationConfig`:
+
+```python
+from rakhshai_graph_nlp.llm.article import (
+    ArticleGenerationConfig,
+    generate_persian_article,
+)
+
+article = generate_persian_article(
+    ArticleGenerationConfig(
+        model_dir="runs/article-llm-fa",
+        topic="اقتصاد دیجیتال ایران",
+        audience="مدیران محصول",
+        tone="تحلیلی",
+        sections=4,
+        max_new_tokens=700,
+        graph_memory=True,
+        device="cuda",
+    )
+)
+
+markdown_text = article.full_markdown
+json_text = article.to_json()
+```
+
+The same trained checkpoint can be used from the CLI:
+
+```bash
+rgnn-cli article-generate \
+  --model runs/article-llm-fa \
+  --topic "اقتصاد دیجیتال ایران" \
+  --audience "مدیران محصول" \
+  --tone "تحلیلی" \
+  --sections 4 \
+  --max-new-tokens 700 \
+  --output-format markdown \
+  --output-path runs/article-llm-fa/economy_article.md
+```
+
+The same workflow is available from the CLI through `article-prepare`,
+`article-audit`, `article-train`, `article-ablation` and `article-generate`.
+The old
+`rakhshai_graph_nlp.article_llm` package remains a compatibility alias, but new
+code should import from `rakhshai_graph_nlp.llm.article` so the workflow layer
+stays distinct from the Graph-LM engine.
+
+## 18. CLI And API Together
 
 You can train with the CLI and load with the API:
 
@@ -553,7 +683,35 @@ model, tokenizer, generation_config, graph_config = GraphCausalLM.from_pretraine
 You can also train text classification from the CLI and use
 `TextGraphClassifier` when you need full Python save/load pipeline control.
 
-## 18. Common Errors
+## 19. Independent LM Engine Workflow
+
+For native engine-level training, build a local corpus, tokenize it into shards,
+pretrain, evaluate and write a run report:
+
+```bash
+rgnn-cli lm-build-corpus --input data/wiki_fa_test.txt --output-dir runs/fa-corpus
+rgnn-cli lm-tokenize --corpus-dir runs/fa-corpus --output-dir runs/fa-shards
+rgnn-cli lm-pretrain \
+  --shard-manifest runs/fa-shards/shard_manifest.json \
+  --output-dir runs/fa-pretrain \
+  --model-profile tiny-test \
+  --device cpu
+rgnn-cli lm-ablation \
+  --corpus runs/fa-corpus/train.txt \
+  --output-dir runs/fa-ablation \
+  --graph-encoders none gat \
+  --device cpu
+rgnn-cli lm-eval \
+  --model runs/fa-pretrain \
+  --eval-file runs/fa-corpus/validation.txt \
+  --output-path runs/fa-pretrain/native_eval_report.json
+rgnn-cli lm-run-report --run-dir runs/fa-pretrain
+```
+
+This workflow is local-only and does not use external pretrained LMs,
+pretrained embeddings, distillation, synthetic LLM data or external LLM judges.
+
+## 20. Common Errors
 
 ### `ImportError: scikit-learn is required`
 
@@ -594,12 +752,22 @@ errors such as "corpus must contain at least two language-model tokens" or "No
 words meet the frequency threshold", lower `min_count`, add more text, or reduce
 `block_size` for smoke tests.
 
-## 19. Recommended Import Style
+## 21. Recommended Import Style
 
 For application code:
 
 ```python
 from rakhshai_graph_nlp import TextGraphClassifier, PersianTokenizer
+```
+
+For LLM workflow-specific code, prefer the workflow namespace so the boundary
+with the lower-level Graph-LM engine is explicit:
+
+```python
+from rakhshai_graph_nlp.llm.article import (
+    ArticleGenerationConfig,
+    generate_persian_article,
+)
 ```
 
 For explicit API auditing:
@@ -617,3 +785,5 @@ from rakhshai_graph_nlp.lm.graph_builder import build_graph_lm_graph
 ```
 
 The stable contract, however, is the root package plus `rakhshai_graph_nlp.api`.
+Workflow namespaces such as `rakhshai_graph_nlp.llm.article` are the preferred
+home for workflow-specific imports.

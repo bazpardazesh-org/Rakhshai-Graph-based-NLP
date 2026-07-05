@@ -16,10 +16,22 @@ from .features.pyg_data import graph_to_data
 from .features.tokenizer import tokenize
 from .graphs.graph import Graph
 from .graphs.text_graph import build_text_graph
+from .llm.article.cli import (
+    ARTICLE_COMMANDS,
+    add_article_subcommands,
+    run_article_command,
+)
+from .lm.corpus import CorpusBuildConfig, build_lm_corpus
+from .lm.eval import NativeEvalConfig, evaluate_lm_checkpoint
 from .lm.graph_builder import build_graph_lm_graph
 from .lm.graph_memory import GraphMemoryArtifact, GraphMemoryConfig
+from .lm.graph_scaling import LMGraphAblationConfig, run_lm_graph_ablation
 from .lm.model import GraphCausalLM, GraphLMConfig
-from .lm.trainer import LMTrainingConfig, train_graph_lm
+from .lm.profiles import available_model_profiles, build_graph_lm_config_from_profile
+from .lm.registry import RunRegistryConfig, build_run_report, write_run_registry
+from .lm.sft import SFTConfig, train_sft
+from .lm.shards import TokenShardConfig, write_token_shards
+from .lm.trainer import LMTrainingConfig, train_graph_lm, train_graph_lm_from_token_shards
 from .metrics import accuracy, macro_f1
 from .tasks.classification import train_node_classifier
 from .utils.logging import setup_logger
@@ -201,18 +213,271 @@ def _parse_relation_weights(raw: str | None) -> dict[str, float] | None:
     return weights
 
 
+def _run_lm_build_corpus(args: argparse.Namespace) -> dict[str, Any]:
+    return build_lm_corpus(
+        CorpusBuildConfig(
+            input_paths=args.input,
+            output_dir=args.output_dir,
+            input_format=args.input_format,
+            text_fields=args.text_fields,
+            source_id=args.source_id,
+            min_chars=args.min_chars,
+            min_persian_ratio=args.min_persian_ratio,
+            near_duplicate_threshold=args.near_duplicate_threshold,
+            validation_ratio=args.validation_ratio,
+            test_ratio=args.test_ratio,
+            seed=args.seed,
+            eval_paths=args.eval_paths or [],
+        )
+    )
+
+
+def _run_lm_tokenize(args: argparse.Namespace) -> dict[str, Any]:
+    return write_token_shards(
+        TokenShardConfig(
+            output_dir=args.output_dir,
+            input_paths=args.input,
+            corpus_dir=args.corpus_dir,
+            tokenizer_path=args.tokenizer,
+            tokenizer_type=args.tokenizer_type,
+            tokenizer_half_space=args.tokenizer_half_space,
+            tokenizer_morph_splitting=args.tokenizer_morph_splitting,
+            tokenizer_compound_verb_mode=args.tokenizer_compound_verb_mode,
+            tokenizer_bpe_merges=args.tokenizer_bpe_merges,
+            tokenizer_unigram_num_pieces=args.unigram_num_pieces,
+            tokenizer_max_vocab_size=args.max_vocab_size,
+            byte_fallback=args.tokenizer_byte_fallback,
+            block_size=args.block_size,
+            stride=args.stride,
+            tokens_per_shard=args.tokens_per_shard,
+            seed=args.seed,
+        )
+    )
+
+
+def _run_lm_ablation(args: argparse.Namespace) -> dict[str, Any]:
+    training_config = LMTrainingConfig(
+        output_dir=args.output_dir,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        block_size=args.block_size,
+        validation_ratio=args.validation_ratio,
+        task_losses="next_token",
+        tokenizer_type=args.tokenizer_type,
+        tokenizer_unigram_num_pieces=args.unigram_num_pieces,
+        graph_cache_dir=args.graph_cache_dir,
+        device="cuda" if args.device == "cuda" and torch.cuda.is_available() else "cpu",
+        seed=args.seed,
+    )
+    relation_groups = None
+    if args.relation_groups:
+        relation_groups = {}
+        for item in args.relation_groups.split(";"):
+            if not item.strip():
+                continue
+            name, raw_relations = item.split("=", 1)
+            relation_groups[name.strip()] = [
+                part.strip() for part in raw_relations.split(",") if part.strip()
+            ]
+    return run_lm_graph_ablation(
+        _load_corpus(args.corpus),
+        LMGraphAblationConfig(
+            output_dir=args.output_dir,
+            training_config=training_config,
+            graph_encoders=args.graph_encoders,
+            graph_scopes=args.graph_scopes,
+            relation_groups=relation_groups,
+        ),
+    )
+
+
+def _run_lm_eval(args: argparse.Namespace) -> dict[str, Any]:
+    return evaluate_lm_checkpoint(
+        NativeEvalConfig(
+            model_dir=args.model,
+            eval_path=args.eval_file,
+            output_path=args.output_path,
+            text_field=args.text_field,
+            prompt_field=args.prompt_field,
+            choices_field=args.choices_field,
+            answer_field=args.answer_field,
+            prediction_field=args.prediction_field,
+            block_size=args.block_size,
+            device=args.device,
+            generation_prompts=args.generation_prompts or [],
+            max_new_tokens=args.max_new_tokens,
+        )
+    )
+
+
+def _run_lm_sft(args: argparse.Namespace) -> dict[str, Any]:
+    return train_sft(
+        SFTConfig(
+            input_path=args.input,
+            output_dir=args.output_dir,
+            prompt_field=args.prompt_field,
+            completion_field=args.completion_field,
+            messages_field=args.messages_field,
+            min_completion_chars=args.min_completion_chars,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            block_size=args.block_size,
+            validation_ratio=args.validation_ratio,
+            tokenizer_type=args.tokenizer_type,
+            tokenizer_unigram_num_pieces=args.unigram_num_pieces,
+            device=args.device,
+            seed=args.seed,
+        ),
+        model_config=GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=args.block_size,
+            d_model=args.d_model,
+            n_heads=args.n_heads,
+            n_layers=args.n_layers,
+            dim_feedforward=args.dim_feedforward,
+            graph_encoder="none",
+        ),
+    )
+
+
+def _run_lm_pretrain(args: argparse.Namespace) -> dict[str, Any]:
+    if not args.corpus and not args.shard_manifest:
+        raise ValueError("lm-pretrain requires --corpus or --shard-manifest")
+    if args.model_profile:
+        model_config = build_graph_lm_config_from_profile(
+            args.model_profile,
+            vocab_size=1,
+            overrides={
+                "max_seq_len": args.context_size,
+                "graph_encoder": "none",
+                "attention_backend": args.attention_backend,
+                "activation_checkpointing": args.activation_checkpointing,
+            },
+        )
+        block_size = model_config.max_seq_len
+    else:
+        block_size = args.block_size
+        model_config = GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=block_size,
+            d_model=args.d_model,
+            n_heads=args.n_heads,
+            n_layers=args.n_layers,
+            dim_feedforward=args.dim_feedforward,
+            graph_encoder="none",
+            attention_backend=args.attention_backend,
+            activation_checkpointing=args.activation_checkpointing,
+        )
+    training_config = LMTrainingConfig(
+        output_dir=args.output_dir,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        block_size=block_size,
+        validation_ratio=args.validation_ratio,
+        task_losses="next_token",
+        tokenizer_type=args.tokenizer_type,
+        tokenizer_unigram_num_pieces=args.unigram_num_pieces,
+        precision=args.precision,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        early_stopping_patience=args.early_stopping_patience,
+        device="cuda" if args.device == "cuda" and torch.cuda.is_available() else "cpu",
+        seed=args.seed,
+    )
+    if args.shard_manifest:
+        metrics = train_graph_lm_from_token_shards(
+            args.shard_manifest,
+            training_config=training_config,
+            model_config=model_config,
+        )
+        data_paths = [args.shard_manifest]
+    else:
+        metrics = train_graph_lm(
+            _load_corpus(args.corpus),
+            training_config=training_config,
+            model_config=model_config,
+            graph_encoder="none",
+        )
+        data_paths = [args.corpus]
+    write_run_registry(
+        RunRegistryConfig(
+            run_dir=args.output_dir,
+            command=["lm-pretrain"],
+            data_paths=data_paths,
+            checkpoint_dir=args.output_dir,
+        )
+    )
+    return metrics
+
+
+def _run_lm_run_report(args: argparse.Namespace) -> dict[str, Any]:
+    return build_run_report(args.run_dir, args.output_path)
+
+
 def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
     if args.d_model % args.n_heads != 0:
         raise ValueError("--d-model must be divisible by --n-heads")
     device = "cuda" if args.device == "cuda" and torch.cuda.is_available() else "cpu"
+    if args.model_profile:
+        model_config = build_graph_lm_config_from_profile(
+            args.model_profile,
+            vocab_size=1,
+            overrides={
+                "max_seq_len": args.context_size,
+                "graph_encoder": args.graph_encoder,
+                "fusion": args.fusion,
+                "fusion_layers": args.fusion_layers,
+                "fusion_levels": args.fusion_levels,
+                "graph_relation_mode": args.graph_relation_mode,
+                "graph_pooling": args.graph_pooling,
+                "graph_node_importance": args.graph_node_importance,
+                "graph_node_type_embedding": args.graph_node_type_embedding,
+                "graph_fusion_scale": args.graph_fusion_scale,
+                "graph_fusion_dropout": args.graph_fusion_dropout,
+                "attention_backend": args.attention_backend,
+                "activation_checkpointing": args.activation_checkpointing,
+            },
+        )
+        effective_block_size = model_config.max_seq_len
+    else:
+        effective_block_size = args.block_size
+        model_config = GraphLMConfig(
+            vocab_size=1,
+            max_seq_len=effective_block_size,
+            d_model=args.d_model,
+            n_heads=args.n_heads,
+            n_layers=args.n_layers,
+            dim_feedforward=args.dim_feedforward,
+            dropout=args.dropout,
+            attention_backend=args.attention_backend,
+            activation_checkpointing=args.activation_checkpointing,
+            graph_encoder=args.graph_encoder,
+            graph_hidden_dim=args.graph_hidden_dim,
+            graph_heads=args.graph_heads,
+            graph_relation_mode=args.graph_relation_mode,
+            graph_pooling=args.graph_pooling,
+            graph_node_importance=args.graph_node_importance,
+            graph_node_type_embedding=args.graph_node_type_embedding,
+            fusion=args.fusion,
+            fusion_layers=args.fusion_layers,
+            fusion_levels=args.fusion_levels,
+            graph_fusion_scale=args.graph_fusion_scale,
+            graph_fusion_dropout=args.graph_fusion_dropout,
+        )
     training_config = LMTrainingConfig(
         output_dir=args.output_dir,
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
+        lr_scheduler=args.lr_scheduler,
+        warmup_ratio=args.warmup_ratio,
+        warmup_steps=args.warmup_steps,
+        min_lr_ratio=args.min_lr_ratio,
         weight_decay=args.weight_decay,
+        adam_beta1=args.adam_beta1,
+        adam_beta2=args.adam_beta2,
+        adam_eps=args.adam_eps,
         validation_ratio=args.validation_ratio,
-        block_size=args.block_size,
+        block_size=effective_block_size,
         stride=args.stride,
         min_freq=args.min_freq,
         max_vocab_size=args.max_vocab_size,
@@ -268,6 +533,11 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         dataloader_num_workers=args.dataloader_num_workers,
         dataloader_pin_memory=args.dataloader_pin_memory,
         amp=args.amp,
+        precision=args.precision,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        compile_model=args.compile_model,
+        sharded_checkpoint=args.sharded_checkpoint,
+        distributed_backend=args.distributed_backend,
         resume_from=args.resume_from,
         tokenizer_type=args.tokenizer_type,
         tokenizer_half_space=args.tokenizer_half_space,
@@ -275,33 +545,14 @@ def _run_lm_train(args: argparse.Namespace) -> dict[str, Any]:
         tokenizer_compound_verb_mode=args.tokenizer_compound_verb_mode,
         tokenizer_bpe_merges=args.tokenizer_bpe_merges,
         tokenizer_unigram_num_pieces=args.unigram_num_pieces,
+        tokenizer_byte_fallback=args.tokenizer_byte_fallback,
         device=device,
         seed=args.seed,
     )
     return train_graph_lm(
         _load_corpus(args.corpus),
         training_config=training_config,
-        model_config=GraphLMConfig(
-            vocab_size=1,
-            max_seq_len=args.block_size,
-            d_model=args.d_model,
-            n_heads=args.n_heads,
-            n_layers=args.n_layers,
-            dim_feedforward=args.dim_feedforward,
-            dropout=args.dropout,
-            graph_encoder=args.graph_encoder,
-            graph_hidden_dim=args.graph_hidden_dim,
-            graph_heads=args.graph_heads,
-            graph_relation_mode=args.graph_relation_mode,
-            graph_pooling=args.graph_pooling,
-            graph_node_importance=args.graph_node_importance,
-            graph_node_type_embedding=args.graph_node_type_embedding,
-            fusion=args.fusion,
-            fusion_layers=args.fusion_layers,
-            fusion_levels=args.fusion_levels,
-            graph_fusion_scale=args.graph_fusion_scale,
-            graph_fusion_dropout=args.graph_fusion_dropout,
-        ),
+        model_config=model_config,
         graph_encoder=args.graph_encoder,
         fusion=args.fusion,
     )
@@ -350,14 +601,20 @@ def _run_generate(args: argparse.Namespace) -> str:
                 tokenizer,
                 graph_config,
             )
-        elif graph_memory is None and graph_data is not None and token_node_ids is not None:
+        elif (
+            graph_memory is None
+            and graph_data is not None
+            and token_node_ids is not None
+        ):
             graph_memory = GraphMemoryArtifact.from_pyg_data(
                 graph_data,
                 token_node_ids,
                 tokenizer,
                 graph_config,
             )
-        graph_memory_config.enabled = saved_memory_config.enabled and graph_memory_config.enabled
+        graph_memory_config.enabled = (
+            saved_memory_config.enabled and graph_memory_config.enabled
+        )
     if (
         model.config.graph_encoder != "none"
         and bool(graph_config.get("dynamic_graph", False))
@@ -381,8 +638,12 @@ def _run_generate(args: argparse.Namespace) -> str:
             directed=bool(graph_config.get("directed", False)),
             graph_scope=str(graph_config.get("graph_scope", "document")),
             context_node_type=str(graph_config.get("context_node_type", "none")),
-            graph_relations=graph_config.get("enabled_relations"),  # type: ignore[arg-type]
-            relation_weights=graph_config.get("relation_weights"),  # type: ignore[arg-type]
+            graph_relations=graph_config.get(  # type: ignore[arg-type]
+                "enabled_relations"
+            ),
+            relation_weights=graph_config.get(  # type: ignore[arg-type]
+                "relation_weights"
+            ),
             semantic_similarity_threshold=float(
                 graph_config.get("semantic_similarity_threshold", 0.6)
             ),
@@ -523,6 +784,213 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    build_corpus = subparsers.add_parser(
+        "lm-build-corpus",
+        help="Clean and split local Persian text for independent LM training",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    build_corpus.add_argument(
+        "--input",
+        nargs="+",
+        required=True,
+        help="Input TXT, JSONL, JSON, CSV or TSV files",
+    )
+    build_corpus.add_argument("--output-dir", required=True)
+    build_corpus.add_argument(
+        "--input-format",
+        choices=["auto", "txt", "json", "jsonl", "csv", "tsv"],
+        default="auto",
+    )
+    build_corpus.add_argument(
+        "--text-fields",
+        nargs="+",
+        default=["text", "body"],
+        help="Fields concatenated when reading structured files",
+    )
+    build_corpus.add_argument("--source-id", default=None)
+    build_corpus.add_argument("--min-chars", type=int, default=20)
+    build_corpus.add_argument("--min-persian-ratio", type=float, default=0.35)
+    build_corpus.add_argument("--near-duplicate-threshold", type=float, default=0.92)
+    build_corpus.add_argument("--validation-ratio", type=float, default=0.1)
+    build_corpus.add_argument("--test-ratio", type=float, default=0.05)
+    build_corpus.add_argument("--eval-paths", nargs="*", default=[])
+    build_corpus.add_argument("--seed", type=int, default=0)
+    build_corpus.add_argument("--log-level", default="INFO")
+
+    tokenize_cmd = subparsers.add_parser(
+        "lm-tokenize",
+        help="Train/load a native tokenizer and write memory-mapped token shards",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    tokenize_cmd.add_argument("--input", nargs="*", default=None)
+    tokenize_cmd.add_argument("--corpus-dir", default=None)
+    tokenize_cmd.add_argument("--output-dir", required=True)
+    tokenize_cmd.add_argument("--tokenizer", default=None, help="Existing tokenizer.json to reuse")
+    tokenize_cmd.add_argument(
+        "--tokenizer-type",
+        choices=["word", "subword", "char_chunk", "bpe", "unigram"],
+        default="unigram",
+    )
+    tokenize_cmd.add_argument(
+        "--tokenizer-half-space",
+        choices=["preserve", "split"],
+        default="preserve",
+    )
+    tokenize_cmd.add_argument("--tokenizer-morph-splitting", action="store_true")
+    tokenize_cmd.add_argument(
+        "--tokenizer-compound-verb-mode",
+        choices=["none", "join"],
+        default="none",
+    )
+    tokenize_cmd.add_argument("--tokenizer-bpe-merges", type=int, default=200)
+    tokenize_cmd.add_argument("--unigram-num-pieces", type=int, default=8000)
+    tokenize_cmd.add_argument("--max-vocab-size", type=int, default=None)
+    tokenize_cmd.add_argument("--tokenizer-byte-fallback", action="store_true")
+    tokenize_cmd.add_argument("--block-size", type=int, default=128)
+    tokenize_cmd.add_argument("--stride", type=int, default=None)
+    tokenize_cmd.add_argument("--tokens-per-shard", type=int, default=2_000_000)
+    tokenize_cmd.add_argument("--seed", type=int, default=0)
+    tokenize_cmd.add_argument("--log-level", default="INFO")
+
+    ablation = subparsers.add_parser(
+        "lm-ablation",
+        help="Run native text-only/graph Graph-LM ablation variants",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    ablation.add_argument("--corpus", required=True)
+    ablation.add_argument("--output-dir", required=True)
+    ablation.add_argument(
+        "--graph-encoders",
+        nargs="+",
+        choices=["none", "gcn", "graphsage", "gat", "rgcn"],
+        default=["none", "gat"],
+    )
+    ablation.add_argument(
+        "--graph-scopes",
+        nargs="+",
+        choices=["corpus", "document", "sentence"],
+        default=["document"],
+    )
+    ablation.add_argument("--relation-groups", default=None)
+    ablation.add_argument("--epochs", type=int, default=1)
+    ablation.add_argument("--batch-size", type=int, default=1)
+    ablation.add_argument("--block-size", type=int, default=64)
+    ablation.add_argument("--validation-ratio", type=float, default=0.1)
+    ablation.add_argument(
+        "--tokenizer-type",
+        choices=["word", "subword", "char_chunk", "bpe", "unigram"],
+        default="unigram",
+    )
+    ablation.add_argument("--unigram-num-pieces", type=int, default=8000)
+    ablation.add_argument("--graph-cache-dir", default=None)
+    ablation.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default="cuda" if torch.cuda.is_available() else "cpu",
+    )
+    ablation.add_argument("--seed", type=int, default=0)
+    ablation.add_argument("--log-level", default="INFO")
+
+    eval_cmd = subparsers.add_parser(
+        "lm-eval",
+        help="Run local-only evaluation for a saved Graph-LM checkpoint",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    eval_cmd.add_argument("--model", required=True)
+    eval_cmd.add_argument("--eval-file", required=True)
+    eval_cmd.add_argument("--output-path", default=None)
+    eval_cmd.add_argument("--text-field", default="text")
+    eval_cmd.add_argument("--prompt-field", default="prompt")
+    eval_cmd.add_argument("--choices-field", default="choices")
+    eval_cmd.add_argument("--answer-field", default="answer")
+    eval_cmd.add_argument("--prediction-field", default="prediction")
+    eval_cmd.add_argument("--block-size", type=int, default=128)
+    eval_cmd.add_argument("--generation-prompts", nargs="*", default=[])
+    eval_cmd.add_argument("--max-new-tokens", type=int, default=32)
+    eval_cmd.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default="cuda" if torch.cuda.is_available() else "cpu",
+    )
+    eval_cmd.add_argument("--seed", type=int, default=0)
+    eval_cmd.add_argument("--log-level", default="INFO")
+
+    sft_cmd = subparsers.add_parser(
+        "lm-sft",
+        help="Train on human-authored local instruction data",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    sft_cmd.add_argument("--input", required=True)
+    sft_cmd.add_argument("--output-dir", required=True)
+    sft_cmd.add_argument("--prompt-field", default="prompt")
+    sft_cmd.add_argument("--completion-field", default="completion")
+    sft_cmd.add_argument("--messages-field", default="messages")
+    sft_cmd.add_argument("--min-completion-chars", type=int, default=1)
+    sft_cmd.add_argument("--epochs", type=int, default=1)
+    sft_cmd.add_argument("--batch-size", type=int, default=1)
+    sft_cmd.add_argument("--block-size", type=int, default=128)
+    sft_cmd.add_argument("--validation-ratio", type=float, default=0.1)
+    sft_cmd.add_argument(
+        "--tokenizer-type",
+        choices=["word", "subword", "char_chunk", "bpe", "unigram"],
+        default="unigram",
+    )
+    sft_cmd.add_argument("--unigram-num-pieces", type=int, default=8000)
+    sft_cmd.add_argument("--d-model", type=int, default=64)
+    sft_cmd.add_argument("--n-heads", type=int, default=4)
+    sft_cmd.add_argument("--n-layers", type=int, default=1)
+    sft_cmd.add_argument("--dim-feedforward", type=int, default=128)
+    sft_cmd.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default="cuda" if torch.cuda.is_available() else "cpu",
+    )
+    sft_cmd.add_argument("--seed", type=int, default=0)
+    sft_cmd.add_argument("--log-level", default="INFO")
+
+    pretrain = subparsers.add_parser(
+        "lm-pretrain",
+        help="Native text-only pretraining from corpus text or token shards",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    pretrain.add_argument("--corpus", default=None)
+    pretrain.add_argument("--shard-manifest", default=None)
+    pretrain.add_argument("--output-dir", required=True)
+    pretrain.add_argument("--model-profile", choices=available_model_profiles(), default=None)
+    pretrain.add_argument("--context-size", type=int, choices=[512, 1024, 2048, 4096], default=None)
+    pretrain.add_argument("--d-model", type=int, default=64)
+    pretrain.add_argument("--n-heads", type=int, default=4)
+    pretrain.add_argument("--n-layers", type=int, default=1)
+    pretrain.add_argument("--dim-feedforward", type=int, default=128)
+    pretrain.add_argument("--attention-backend", choices=["auto", "math", "flash", "memory_efficient"], default="auto")
+    pretrain.add_argument("--activation-checkpointing", action="store_true")
+    pretrain.add_argument("--epochs", type=int, default=1)
+    pretrain.add_argument("--batch-size", type=int, default=1)
+    pretrain.add_argument("--block-size", type=int, default=128)
+    pretrain.add_argument("--validation-ratio", type=float, default=0.1)
+    pretrain.add_argument("--tokenizer-type", choices=["word", "subword", "char_chunk", "bpe", "unigram"], default="unigram")
+    pretrain.add_argument("--unigram-num-pieces", type=int, default=8000)
+    pretrain.add_argument("--precision", choices=["auto", "fp32", "fp16", "bf16"], default="auto")
+    pretrain.add_argument("--gradient-accumulation-steps", type=int, default=1)
+    pretrain.add_argument("--early-stopping-patience", type=int, default=0)
+    pretrain.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default="cuda" if torch.cuda.is_available() else "cpu",
+    )
+    pretrain.add_argument("--seed", type=int, default=0)
+    pretrain.add_argument("--log-level", default="INFO")
+
+    run_report = subparsers.add_parser(
+        "lm-run-report",
+        help="Build a consolidated report for a native LM run directory",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    run_report.add_argument("--run-dir", required=True)
+    run_report.add_argument("--output-path", default=None)
+    run_report.add_argument("--seed", type=int, default=0)
+    run_report.add_argument("--log-level", default="INFO")
+
     train = subparsers.add_parser(
         "lm-train",
         help="Train a Persian Graph causal language model",
@@ -539,7 +1007,11 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         choices=["none", "gcn", "graphsage", "gat", "rgcn"],
         default="gat",
     )
-    train.add_argument("--fusion", choices=["gated", "context_gated", "add"], default="gated")
+    train.add_argument(
+        "--fusion",
+        choices=["gated", "context_gated", "add"],
+        default="gated",
+    )
     train.add_argument("--fusion-layers", choices=["input", "all"], default="input")
     train.add_argument(
         "--fusion-levels",
@@ -670,11 +1142,35 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Gradient clipping norm used by the LM trainer",
     )
+    train.add_argument(
+        "--model-profile",
+        choices=available_model_profiles(),
+        default=None,
+        help="Named native model-size profile; omitted keeps manual sizing flags",
+    )
+    train.add_argument(
+        "--context-size",
+        type=int,
+        choices=[512, 1024, 2048, 4096],
+        default=None,
+        help="Context-size override used with --model-profile",
+    )
     train.add_argument("--d-model", type=int, default=128)
     train.add_argument("--n-heads", type=int, default=4)
     train.add_argument("--n-layers", type=int, default=2)
     train.add_argument("--dim-feedforward", type=int, default=512)
     train.add_argument("--dropout", type=float, default=0.1)
+    train.add_argument(
+        "--attention-backend",
+        choices=["auto", "math", "flash", "memory_efficient"],
+        default="auto",
+        help="PyTorch scaled-dot-product attention backend preference",
+    )
+    train.add_argument(
+        "--activation-checkpointing",
+        action="store_true",
+        help="Checkpoint decoder layer activations during training",
+    )
     train.add_argument("--graph-hidden-dim", type=int, default=128)
     train.add_argument("--graph-heads", type=int, default=4)
     train.add_argument(
@@ -705,8 +1201,25 @@ def _build_lm_parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--epochs", type=int, default=3)
     train.add_argument("--batch-size", type=int, default=8)
+    train.add_argument(
+        "--gradient-accumulation-steps",
+        type=int,
+        default=1,
+        help="Accumulate this many micro-batches before each optimizer step",
+    )
     train.add_argument("--learning-rate", type=float, default=3e-4)
+    train.add_argument(
+        "--lr-scheduler",
+        choices=["none", "cosine", "linear"],
+        default="cosine",
+    )
+    train.add_argument("--warmup-ratio", type=float, default=0.05)
+    train.add_argument("--warmup-steps", type=int, default=None)
+    train.add_argument("--min-lr-ratio", type=float, default=0.0)
     train.add_argument("--weight-decay", type=float, default=0.01)
+    train.add_argument("--adam-beta1", type=float, default=0.9)
+    train.add_argument("--adam-beta2", type=float, default=0.999)
+    train.add_argument("--adam-eps", type=float, default=1e-8)
     train.add_argument("--validation-ratio", type=float, default=0.1)
     train.add_argument("--block-size", type=int, default=128)
     train.add_argument("--stride", type=int, default=None)
@@ -811,6 +1324,20 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         help="Enable CUDA automatic mixed precision for LM training",
     )
     train.add_argument(
+        "--precision",
+        choices=["auto", "fp32", "fp16", "bf16"],
+        default="auto",
+        help="Autocast precision mode; CPU falls back safely to fp32",
+    )
+    train.add_argument("--compile-model", action="store_true")
+    train.add_argument("--sharded-checkpoint", action="store_true")
+    train.add_argument(
+        "--distributed-backend",
+        choices=["none", "ddp", "fsdp"],
+        default="none",
+        help="Wrap with PyTorch DDP/FSDP only when torch.distributed is initialized",
+    )
+    train.add_argument(
         "--resume-from",
         default=None,
         help="Resume LM model and optimizer state from a previous checkpoint directory",
@@ -839,6 +1366,11 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         default=8000,
         help="Target subword vocabulary size for the unigram tokenizer",
     )
+    train.add_argument(
+        "--tokenizer-byte-fallback",
+        action="store_true",
+        help="Encode out-of-vocabulary tokens as native UTF-8 byte tokens",
+    )
     train.add_argument("--seed", type=int, default=0)
     train.add_argument(
         "--device",
@@ -852,7 +1384,11 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         help="Generate text from a saved Graph-LM checkpoint",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    generate.add_argument("--model", required=True, help="Directory containing Graph-LM files")
+    generate.add_argument(
+        "--model",
+        required=True,
+        help="Directory containing Graph-LM files",
+    )
     generate.add_argument("--prompt", required=True)
     generate.add_argument("--max-new-tokens", type=int, default=None)
     generate.add_argument("--min-new-tokens", type=int, default=None)
@@ -905,6 +1441,7 @@ def _build_lm_parser() -> argparse.ArgumentParser:
         default="cuda" if torch.cuda.is_available() else "cpu",
     )
     generate.add_argument("--log-level", default="INFO")
+    add_article_subcommands(subparsers)
     return parser
 
 
@@ -1048,16 +1585,90 @@ def _build_classification_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if argv and argv[0] in {"lm-train", "generate"}:
+    lm_commands = {
+        "lm-build-corpus",
+        "lm-tokenize",
+        "lm-ablation",
+        "lm-eval",
+        "lm-sft",
+        "lm-pretrain",
+        "lm-run-report",
+        "lm-train",
+        "generate",
+        *ARTICLE_COMMANDS,
+    }
+    if argv and argv[0] in lm_commands:
         parser = _build_lm_parser()
         args = parser.parse_args(argv)
-        logger = setup_logger(args.log_level)
+        logger = setup_logger(getattr(args, "log_level", "INFO"))
         set_seed(getattr(args, "seed", 0))
-        if args.device == "cuda" and not torch.cuda.is_available():
+        if getattr(args, "device", "cpu") == "cuda" and not torch.cuda.is_available():
             logger.warning("CUDA requested but unavailable; falling back to CPU")
             args.device = "cpu"
+        if args.command == "lm-build-corpus":
+            manifest = _run_lm_build_corpus(args)
+            logger.info(
+                "lm_corpus output=%s accepted=%s rejected=%s",
+                args.output_dir,
+                manifest["quality_report"]["records_accepted"],
+                manifest["quality_report"]["records_rejected"],
+            )
+            return 0
+        if args.command == "lm-tokenize":
+            manifest = _run_lm_tokenize(args)
+            logger.info(
+                "lm_tokenize output=%s shards=%s vocab=%s",
+                args.output_dir,
+                len(manifest["shards"]),
+                manifest["audit"].get("train", {}).get("vocab_size"),
+            )
+            return 0
+        if args.command == "lm-ablation":
+            report = _run_lm_ablation(args)
+            logger.info("lm_ablation output=%s variants=%s", args.output_dir, len(report["variants"]))
+            return 0
+        if args.command == "lm-eval":
+            report = _run_lm_eval(args)
+            logger.info("lm_eval rows=%s output=%s", report["row_count"], args.output_path)
+            return 0
+        if args.command == "lm-sft":
+            metrics = _run_lm_sft(args)
+            write_run_registry(
+                RunRegistryConfig(
+                    run_dir=args.output_dir,
+                    command=["lm-sft"],
+                    data_paths=[args.input],
+                    checkpoint_dir=args.output_dir,
+                )
+            )
+            logger.info(
+                "lm_sft checkpoint=%s records=%s",
+                metrics["checkpoint_dir"],
+                metrics["sft_manifest"]["records_used"],
+            )
+            return 0
+        if args.command == "lm-pretrain":
+            metrics = _run_lm_pretrain(args)
+            logger.info(
+                "lm_pretrain checkpoint=%s perplexity=%.3f",
+                metrics["checkpoint_dir"],
+                metrics["best_perplexity"],
+            )
+            return 0
+        if args.command == "lm-run-report":
+            report = _run_lm_run_report(args)
+            logger.info("lm_run_report run_dir=%s files=%s", args.run_dir, len(report["files"]))
+            return 0
         if args.command == "lm-train":
             metrics = _run_lm_train(args)
+            write_run_registry(
+                RunRegistryConfig(
+                    run_dir=args.output_dir,
+                    command=["lm-train"],
+                    data_paths=[args.corpus],
+                    checkpoint_dir=args.output_dir,
+                )
+            )
             logger.info(
                 "graph_lm checkpoint=%s validation_loss=%.3f perplexity=%.3f",
                 metrics["checkpoint_dir"],
@@ -1070,9 +1681,12 @@ def main(argv: list[str] | None = None) -> int:
                 encoding="utf-8",
             )
             return 0
-        generated = _run_generate(args)
-        print(generated)
-        return 0
+        if args.command == "generate":
+            generated = _run_generate(args)
+            print(generated)
+            return 0
+        if args.command in ARTICLE_COMMANDS:
+            return run_article_command(args, logger)
 
     parser = _build_classification_parser()
     config_args, _ = parser.parse_known_args(argv)

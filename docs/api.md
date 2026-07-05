@@ -1,7 +1,7 @@
 # Stable Public API
 
 Rakhshai Graph-based NLP exposes a stable Python API starting with package
-version `2.1.0` and API version `2.1`.
+version `2.2.0` and API version `2.2`.
 
 For step-by-step examples, see the [Python API Usage Guide](api_usage.md).
 
@@ -18,7 +18,7 @@ Both surfaces point to the same compatibility contract. The package exposes:
 import rakhshai_graph_nlp as rgnn
 
 print(rgnn.API_STATUS)       # stable
-print(rgnn.__api_version__)  # 2.1
+print(rgnn.__api_version__)  # 2.2
 print(rgnn.stable_api())     # names covered by the compatibility contract
 ```
 
@@ -54,11 +54,13 @@ print(rgnn.stable_api())     # names covered by the compatibility contract
 | `tokenize`, `split_sentences` | Lightweight Unicode-aware tokenization and sentence splitting. |
 | `tokenize_persian` | Persian-normalizing feature tokenizer used by graph pipelines. |
 | `PersianNormalizer`, `PersianNormalizerConfig` | Reusable Persian normalization with half-space, digit, hamza and ezafe controls. |
+| `normalise_characters`, `remove_diacritics`, `normalise_whitespace` | Lower-level Persian text normalization helpers. |
 | `normalize_persian_text`, `preprocess` | Convenience text cleanup helpers. |
 | `preprocess_persian_corpus` | Normalize, tokenize and optionally lemmatize a corpus. |
 | `build_feature_matrix` | Build bag-of-words or embedding-averaged node features. |
 | `graph_to_data` | Convert `Graph` to a PyTorch Geometric `Data` object. |
 | `cooccurrence_matrix` | Sparse sliding-window co-occurrence matrix. |
+| `load_dummy_classification_dataset` | Small built-in classification dataset for examples and smoke tests. |
 
 ## Task API
 
@@ -85,16 +87,39 @@ print(rgnn.stable_api())     # names covered by the compatibility contract
 | Name | Purpose |
 | --- | --- |
 | `PersianTokenizer` | Numeric tokenizer for Persian Graph-LM training and generation. |
-| `LMDataset`, `build_lm_dataloaders` | Next-token language-model datasets and loaders. |
+| `CorpusBuildConfig`, `build_lm_corpus`, `persian_ratio` | Native corpus cleaning, filtering, split creation and Persian-character quality checks. |
+| `LMDataset`, `LMLoaders`, `build_lm_dataloaders` | Next-token language-model datasets and loaders. |
+| `TokenShardConfig`, `TokenShardDataset`, `write_token_shards`, `tokenizer_audit` | Memory-mapped token-shard preparation and lazy shard datasets for larger LM runs. |
 | `GraphLMGraph`, `build_graph_lm_graph`, `build_graph_lm_graph_from_token_ids` | Multi-relation Graph-LM graph construction. |
 | `GraphCausalLM`, `GraphLMConfig`, `GenerationConfig` | Graph-fused Persian causal LM and generation configuration. |
 | `RakhshaiGraphEncoder`, `GraphTokenFusion` | Graph reasoning and graph-token fusion components. |
-| `LMTrainer`, `LMTrainingConfig`, `train_graph_lm` | Graph-LM training loop, config and high-level train function. |
+| `LMTrainer`, `LMTrainingConfig`, `train_graph_lm`, `train_graph_lm_from_token_shards` | Graph-LM training loop, config and high-level train functions for text corpora or token shards. |
+| `DistributedTrainingInfo`, `get_distributed_info`, `maybe_wrap_distributed` | PyTorch-native distributed training inspection and optional DDP/FSDP wrapping. |
+| `NativeEvalConfig`, `evaluate_lm_checkpoint`, `score_texts`, `score_prompt_completion`, `export_human_review` | Local-only checkpoint evaluation, prompt scoring and human-review export helpers. |
 | `GraphMemoryArtifact`, `GraphMemoryConfig`, `RetrievedGraphContext` | Prompt-aware graph memory for generation. |
+| `LMGraphAblationConfig`, `run_lm_graph_ablation`, `write_graph_feature_store` | Engine-level graph ablation and scalable graph-feature artifact helpers. |
+| `ModelProfile`, `MODEL_PROFILES`, `CONTEXT_PRESETS`, `available_model_profiles`, `build_graph_lm_config_from_profile` | Named native model-size profiles and context presets for repeatable LM training configs. |
+| `RunRegistryConfig`, `write_run_registry`, `build_run_report`, `hash_file`, `hash_json` | Run provenance, data/checkpoint hashing and consolidated run reports. |
+| `SFTConfig`, `format_sft_record`, `load_sft_texts`, `train_sft` | Supervised fine-tuning helpers for local human-authored prompt/completion data. |
 | `MultiTaskLossConfig`, `parse_task_losses` | Multi-task Graph-LM objective configuration. |
-| `TextAugmentationConfig`, `augment_text`, `augment_corpus`, `augment_graph_data` | Low-data text and graph regularization utilities. |
+| `TextAugmentationConfig`, `augment_text`, `augment_corpus`, `augment_graph_data`, `mean_pool_hidden` | Low-data text and graph regularization utilities plus pooled text embeddings. |
 | `PoemRecommender`, `build_poem_index`, `embed_texts`, `load_for_embedding`, `list_poem_recommenders` | Graph-LM powered poem search and recommendation. |
 | `perplexity` | Convert mean next-token cross-entropy loss to perplexity. |
+
+## LLM Workflow API
+
+Workflow APIs are higher-level pipelines built on top of the Graph-LM engine.
+Use `rakhshai_graph_nlp.llm.article` for article-specific code. The same public
+names are re-exported from `rakhshai_graph_nlp` for stable-API compatibility.
+
+| Name | Purpose |
+| --- | --- |
+| `ArticleCorpusConfig`, `prepare_article_corpus` | Convert raw TXT, JSONL, CSV or TSV Persian article data into prepared corpus, split and manifest files. |
+| `ArticleAuditConfig`, `audit_article_corpus` | Audit native Persian article data quality, duplicate risk, Persian surface statistics and tokenizer behavior without external models. |
+| `ArticleTrainingConfig`, `train_article_llm` | Train an article-focused Graph-LM checkpoint while preserving normal Graph-LM checkpoint artifacts. |
+| `ArticleAblationConfig`, `run_article_ablation` | Run native no-graph/graph/scope/relation ablations around article training and collect zero-gate and optional graph-memory probe reports. |
+| `ArticleGenerationConfig`, `generate_persian_article` | Load an article checkpoint and generate a structured Persian article. |
+| `PersianArticle` | Structured output container with title, introduction, sections, conclusion, Markdown and JSON helpers. |
 
 ## Metrics
 

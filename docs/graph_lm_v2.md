@@ -308,10 +308,16 @@ This is the default graph-enabled V2 comparison point.
 
 ## V2 Release Surface
 
-- Package metadata reports `2.0.0`.
+- Package metadata reports `2.2.0`.
 - The default Graph-LM graph is multi-relation (includes `dependency`) with
   parallel edges per relation.
 - The tokenizer writes `tokenizer_version = 3` and reserves a `<mask>` token.
+- The tokenizer can opt into byte fallback for native UTF-8 coverage.
+- Independent pretraining can use `lm-build-corpus`, `lm-tokenize`,
+  `lm-pretrain`, `lm-ablation`, `lm-eval`, `lm-sft` and `lm-run-report`.
+- Trainer scaling controls include gradient accumulation, precision mode,
+  activation checkpointing, SDPA backend selection, named model profiles and
+  registry/checkpoint manifests.
 - Relation-aware graph reasoning and adaptive graph-text fusion are documented.
 - Low-data training controls are part of the supported Graph-LM path.
 - Generation can use checkpointed graph memory when available.

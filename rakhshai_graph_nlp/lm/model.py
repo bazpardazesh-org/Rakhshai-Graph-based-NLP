@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import math
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 from torch_geometric.data import Data
 from torch_geometric.nn import GATConv, GCNConv, MessagePassing
 
@@ -30,6 +32,8 @@ class GraphLMConfig:
     ffn_type: str = "swiglu"
     norm_type: str = "rmsnorm"
     rope_theta: float = 10000.0
+    attention_backend: str = "auto"
+    activation_checkpointing: bool = False
     graph_encoder: str = "gat"
     graph_hidden_dim: int = 128
     graph_heads: int = 4
@@ -604,6 +608,12 @@ class RakhshaiSelfAttention(nn.Module):
 
     def __init__(self, config: GraphLMConfig):
         super().__init__()
+        backend = config.attention_backend.lower()
+        if backend not in {"auto", "math", "flash", "memory_efficient"}:
+            raise ValueError(
+                "attention_backend must be one of: auto, math, flash, memory_efficient"
+            )
+        self.attention_backend = backend
         if config.d_model % config.n_heads != 0:
             raise ValueError("d_model must be divisible by n_heads")
         self.n_heads = config.n_heads
@@ -613,6 +623,20 @@ class RakhshaiSelfAttention(nn.Module):
         self.v_proj = nn.Linear(config.d_model, config.d_model)
         self.out_proj = nn.Linear(config.d_model, config.d_model)
         self.dropout_p = config.dropout
+
+    def _sdpa_context(self, device: torch.device):
+        if (
+            self.attention_backend == "auto"
+            or device.type != "cuda"
+            or not hasattr(torch.backends, "cuda")
+            or not hasattr(torch.backends.cuda, "sdp_kernel")
+        ):
+            return nullcontext()
+        return torch.backends.cuda.sdp_kernel(
+            enable_flash=self.attention_backend == "flash",
+            enable_math=self.attention_backend == "math",
+            enable_mem_efficient=self.attention_backend == "memory_efficient",
+        )
 
     def forward(
         self,
@@ -650,13 +674,14 @@ class RakhshaiSelfAttention(nn.Module):
             pad = key_padding_mask[:, None, None, :].to(torch.bool)
             attn_mask = attn_mask.masked_fill(pad, float("-inf"))
 
-        attn = F.scaled_dot_product_attention(
-            q,
-            k,
-            v,
-            attn_mask=attn_mask,
-            dropout_p=self.dropout_p if self.training else 0.0,
-        )
+        with self._sdpa_context(q.device):
+            attn = F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout_p if self.training else 0.0,
+            )
         attn = attn.transpose(1, 2).reshape(batch, seq_len, -1)
         return self.out_proj(attn), present
 
@@ -975,7 +1000,18 @@ class GraphCausalLM(nn.Module):
                 hidden, layer_stats = fused
                 for key, value in layer_stats.items():
                     fusion_stats[f"layer_{key}"] = value
-            hidden, _ = layer(hidden, rope=rope, key_padding_mask=padding_mask)
+            if self.training and self.config.activation_checkpointing:
+                hidden = checkpoint(
+                    lambda tensor, current_layer=layer: current_layer(
+                        tensor,
+                        rope=rope,
+                        key_padding_mask=padding_mask,
+                    )[0],
+                    hidden,
+                    use_reentrant=False,
+                )
+            else:
+                hidden, _ = layer(hidden, rope=rope, key_padding_mask=padding_mask)
         hidden = self.final_norm(hidden)
         logits = self.lm_head(hidden)
         output = {"logits": logits}

@@ -1580,6 +1580,10 @@ def test_phase9_resume_continues_training_state(tmp_path):
     assert resumed["epochs_ran"] == 2
 
 
+def test_training_resume_restores_state(tmp_path):
+    test_phase9_resume_continues_training_state(tmp_path)
+
+
 def test_phase9_cli_accepts_scalability_options(tmp_path):
     corpus = tmp_path / "corpus.txt"
     corpus.write_text(

@@ -3,9 +3,9 @@ from rakhshai_graph_nlp import api
 
 
 def test_stable_api_metadata_and_exports():
-    assert rgnn.__version__ == "2.1.0"
+    assert rgnn.__version__ == "2.2.0"
     assert rgnn.API_STATUS == "stable"
-    assert rgnn.__api_version__ == "2.1"
+    assert rgnn.__api_version__ == "2.2"
     assert api.API_STATUS == "stable"
     assert api.stable_api() == rgnn.stable_api()
 
@@ -20,6 +20,17 @@ def test_stable_api_metadata_and_exports():
         "train_graph_lm",
         "GraphMemoryConfig",
         "PoemRecommender",
+        "ArticleCorpusConfig",
+        "ArticleAuditConfig",
+        "ArticleAblationConfig",
+        "ArticleTrainingConfig",
+        "ArticleGenerationConfig",
+        "PersianArticle",
+        "audit_article_corpus",
+        "prepare_article_corpus",
+        "train_article_llm",
+        "run_article_ablation",
+        "generate_persian_article",
         "tokenize_persian",
         "graph_to_data",
         "accuracy",
@@ -40,3 +51,5 @@ def test_stable_api_keeps_subpackage_shortcuts():
     assert rgnn.models.GCNClassifier is rgnn.GCNClassifier
     assert rgnn.tasks.TextGraphClassifier is rgnn.TextGraphClassifier
     assert rgnn.lm.GraphCausalLM is rgnn.GraphCausalLM
+    assert rgnn.llm.article.PersianArticle is rgnn.PersianArticle
+    assert rgnn.article_llm.PersianArticle is rgnn.PersianArticle

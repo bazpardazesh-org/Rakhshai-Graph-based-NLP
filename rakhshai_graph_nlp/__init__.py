@@ -7,7 +7,7 @@ from typing import Any
 
 from . import api as _api
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 API_STATUS = _api.API_STATUS
 API_VERSION = _api.API_VERSION
 STABLE_API_VERSION = _api.STABLE_API_VERSION
@@ -15,10 +15,12 @@ __api_version__ = _api.__api_version__
 stable_api = _api.stable_api
 
 _SUBPACKAGES = {
+    "article_llm": "rakhshai_graph_nlp.article_llm",
     "api": "rakhshai_graph_nlp.api",
     "features": "rakhshai_graph_nlp.features",
     "graphs": "rakhshai_graph_nlp.graphs",
     "lm": "rakhshai_graph_nlp.lm",
+    "llm": "rakhshai_graph_nlp.llm",
     "models": "rakhshai_graph_nlp.models",
     "tasks": "rakhshai_graph_nlp.tasks",
 }

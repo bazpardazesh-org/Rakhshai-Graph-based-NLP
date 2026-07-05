@@ -27,7 +27,7 @@ pip install -e .[docs]
 - **Persian Graph-LM path**: `PersianTokenizer`, `build_graph_lm_graph`, `GraphCausalLM` and `LMTrainer` provide a causal LM baseline with optional graph encoding and graph-token fusion. The stable V2 architecture is documented in [Rakhshai Graph-LM V2 Architecture](graph_lm_v2.md), the multi-relation graph is documented in [Rakhshai Multi-Relation Persian Graph](multi_relation_persian_graph.md), the encoder upgrade is documented in [Rakhshai Graph Reasoning Core](graph_reasoning_core.md), and the low-data engine is documented in [Rakhshai Low-Data Training Engine](low_data_training_engine.md).
 - **Training pipeline**: `rgnn-cli` can train on CSV, TSV or JSONL text datasets, create train/validation/test splits, report accuracy and macro-F1, and save model checkpoints.
 - **Application tasks**: `textrank_summarise`, `gat_summarise`, `recommend_similar`, `HateSpeechDetector` and others.
-- **Stable Python API**: package version `2.1.0` exposes API version `2.1`
+- **Stable Python API**: package version `2.2.0` exposes API version `2.2`
   through `rakhshai_graph_nlp` and `rakhshai_graph_nlp.api`; see
   [Stable Public API](api.md) and the [Python API Usage Guide](api_usage.md).
 
@@ -50,6 +50,14 @@ The Graph-LM path is experimental but now has a documented V2 architecture,
 a multi-relation default graph, a Low-Data Training Engine, graph memory for
 generation, and two control modes: a no-graph baseline and an explicit v1 simple
 graph baseline with `--graph-relations cooccurrence`.
+
+The native Persian article LLM layer adds `article-prepare`, `article-audit`,
+`article-train`, `article-ablation` and `article-generate` for article
+datasets. It is the first high-level workflow under `rakhshai_graph_nlp.llm`;
+`rakhshai_graph_nlp.lm` remains the lower-level Graph-LM engine for tokenizer,
+graph, model and trainer internals. The workflow reuses Graph-LM rather than
+introducing external pretrained models. See [LLM Workflows](llm.md) and
+[Native Persian Article LLM](article_llm.md).
 
 FarsNet support is available through `load_farsnet_relations` and
 `build_semantic_graph_from_farsnet`. The project does not bundle the FarsNet

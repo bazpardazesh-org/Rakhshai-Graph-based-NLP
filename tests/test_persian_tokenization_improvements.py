@@ -237,6 +237,23 @@ def test_rope_requires_even_head_dimension():
     raise AssertionError("expected ValueError for odd head dimension")
 
 
+def test_rope_forward_shape():
+    config = GraphLMConfig(
+        vocab_size=24,
+        graph_encoder="none",
+        max_seq_len=8,
+        d_model=16,
+        n_heads=2,
+        n_layers=1,
+    )
+    model = GraphCausalLM(config)
+    input_ids = torch.randint(0, config.vocab_size, (2, 8))
+
+    output = model(input_ids)
+
+    assert output["logits"].shape == (2, 8, config.vocab_size)
+
+
 def test_model_forward_runs_with_modern_stack():
     config = GraphLMConfig(vocab_size=32, graph_encoder="none", max_seq_len=8)
     model = GraphCausalLM(config)

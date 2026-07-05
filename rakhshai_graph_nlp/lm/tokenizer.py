@@ -76,6 +76,8 @@ SUFFIXES = (
     "اش",
 )
 BPE_END = "</w>"
+BYTE_TOKEN_PREFIX = "<0x"
+BYTE_TOKENS = tuple(f"<0x{value:02X}>" for value in range(256))
 
 
 @dataclass
@@ -103,6 +105,7 @@ class PersianTokenizer:
     unigram_em_iters: int = 4
     unigram_pieces: dict[str, float] = field(default_factory=dict)
     unigram_unk_logprob: float = 0.0
+    byte_fallback: bool = False
     pad_token: str = "<pad>"
     unk_token: str = "<unk>"
     bos_token: str = "<bos>"
@@ -420,22 +423,55 @@ class PersianTokenizer:
             self.eos_token,
             self.mask_token,
         ]
+        reserved_tokens = [*special_tokens, *(BYTE_TOKENS if self.byte_fallback else ())]
         vocab_items = [
             token
             for token, count in counts.most_common()
-            if count >= self.min_freq and token not in special_tokens
+            if count >= self.min_freq and token not in reserved_tokens
         ]
         if self.max_vocab_size is not None:
-            vocab_items = vocab_items[: max(0, self.max_vocab_size - len(special_tokens))]
+            vocab_items = vocab_items[: max(0, self.max_vocab_size - len(reserved_tokens))]
 
-        self.token_to_id = {token: idx for idx, token in enumerate(special_tokens)}
+        self.token_to_id = {token: idx for idx, token in enumerate(reserved_tokens)}
         for token in vocab_items:
             self.token_to_id[token] = len(self.token_to_id)
         self.id_to_token = {idx: token for token, idx in self.token_to_id.items()}
         return self
 
+    @staticmethod
+    def _is_byte_token(token: str) -> bool:
+        return (
+            len(token) == 6
+            and token.startswith(BYTE_TOKEN_PREFIX)
+            and token.endswith(">")
+        )
+
+    @staticmethod
+    def _byte_token_value(token: str) -> int | None:
+        if not PersianTokenizer._is_byte_token(token):
+            return None
+        try:
+            return int(token[3:5], 16)
+        except ValueError:
+            return None
+
+    def _byte_fallback_ids(self, token: str) -> list[int]:
+        ids: list[int] = []
+        for value in token.encode("utf-8"):
+            fallback = BYTE_TOKENS[value]
+            ids.append(self.token_to_id.get(fallback, self.unk_id))
+        return ids or [self.unk_id]
+
     def encode(self, text: str, *, add_special_tokens: bool = True) -> list[int]:
-        ids = [self.token_to_id.get(token, self.unk_id) for token in self.tokenize(text)]
+        ids: list[int] = []
+        for token in self.tokenize(text):
+            token_id = self.token_to_id.get(token)
+            if token_id is not None:
+                ids.append(token_id)
+            elif self.byte_fallback:
+                ids.extend(self._byte_fallback_ids(token))
+            else:
+                ids.append(self.unk_id)
         if add_special_tokens:
             return [self.bos_id, *ids, self.eos_id]
         return ids
@@ -449,11 +485,25 @@ class PersianTokenizer:
             self.mask_token,
         }
         tokens: list[str] = []
+        byte_buffer: list[int] = []
+
+        def flush_bytes() -> None:
+            if not byte_buffer:
+                return
+            tokens.append(bytes(byte_buffer).decode("utf-8", errors="replace"))
+            byte_buffer.clear()
+
         for idx in ids:
             token = self.id_to_token.get(int(idx), self.unk_token)
             if skip_special_tokens and token in special:
                 continue
+            value = self._byte_token_value(token)
+            if value is not None:
+                byte_buffer.append(value)
+                continue
+            flush_bytes()
             tokens.append(token)
+        flush_bytes()
         if self.tokenizer_type in {"char_chunk", "bpe", "unigram"}:
             words: list[str] = []
             for token in tokens:
@@ -488,6 +538,7 @@ class PersianTokenizer:
             "unigram_em_iters": self.unigram_em_iters,
             "unigram_pieces": self.unigram_pieces,
             "unigram_unk_logprob": self.unigram_unk_logprob,
+            "byte_fallback": self.byte_fallback,
             "special_tokens": {
                 "pad_token": self.pad_token,
                 "unk_token": self.unk_token,
@@ -537,6 +588,7 @@ class PersianTokenizer:
                 for piece, logprob in dict(data.get("unigram_pieces", {})).items()
             },
             unigram_unk_logprob=float(data.get("unigram_unk_logprob", 0.0)),
+            byte_fallback=bool(data.get("byte_fallback", False)),
             pad_token=str(special.get("pad_token", "<pad>")),
             unk_token=str(special.get("unk_token", "<unk>")),
             bos_token=str(special.get("bos_token", "<bos>")),

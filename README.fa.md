@@ -114,6 +114,16 @@ test و بررسی سلامت پیاده‌سازی مناسب است.
   گرافی جداگانه ذخیره می‌کنند. دستور `generate` به صورت پیش‌فرض از prompt
   nodeها و subgraphهای مرتبط را retrieve می‌کند و همان زیرگراف محدود را به
   fusion می‌دهد تا مدل به جای کل گراف، حافظهٔ مرتبط با prompt را مصرف کند.
+- **قابلیت ساخت LLMهای بومی:** رخشای می‌تواند checkpointهای LLM فارسی
+  را از corpusهای متعلق به خود پروژه بسازد، نه اینکه فقط wrapper یک مدل
+  pretrained بیرونی باشد. این workflowها زیر `rakhshai_graph_nlp.llm` قرار
+  می‌گیرند و از `rakhshai_graph_nlp.lm` به‌عنوان موتور سطح پایین Graph-LM
+  استفاده می‌کنند. گزینهٔ فعلی، Native Persian Article LLM است: دستورهای
+  `article-prepare`، `article-audit`، `article-train`، `article-ablation` و
+  `article-generate` دیتاست مقاله را آماده می‌کنند، کیفیت داده و tokenizer را
+  می‌سنجند، checkpoint مقاله‌محور می‌سازند، ablation گراف اجرا می‌کنند و خروجی
+  ساختاریافته Markdown یا JSON می‌دهند. راهنما در `docs/llm.md` و
+  `docs/article_llm.md` است.
 - **Baseline بدون گراف برای مقایسه منصفانه:** با `--graph-encoder none` می‌توانید
   همان Transformer causal LM را بدون GNN و fusion آموزش دهید و اثر واقعی گراف را
   با validation loss و perplexity بسنجید.
@@ -337,17 +347,170 @@ rgnn-cli generate \
   --repetition-penalty 1.2
 ```
 
-در این دستور، Graph Memory به صورت پیش‌فرض فعال است. اگر checkpoint شامل
-`graph_memory.pt` باشد، همان حافظه بارگذاری می‌شود؛ اگر نباشد و `corpus.txt`
-در checkpoint وجود داشته باشد، حافظه از corpus و `graph_config.json` بازسازی
-می‌شود. برای خاموش‌کردن حافظه و برگشت به generate قبلی:
+مسیر مستقل آموزش engine-level برای LLM نیز بدون وابستگی به مدل بیرونی آماده
+است:
 
 ```bash
-rgnn-cli generate \
-  --model runs/wiki-graph-lm \
-  --prompt "امروز در تهران" \
-  --max-new-tokens 100 \
+rgnn-cli lm-build-corpus --input data/wiki_fa_test.txt --output-dir runs/fa-corpus
+rgnn-cli lm-tokenize --corpus-dir runs/fa-corpus --output-dir runs/fa-shards
+rgnn-cli lm-pretrain \
+  --shard-manifest runs/fa-shards/shard_manifest.json \
+  --output-dir runs/fa-pretrain \
+  --model-profile tiny-test \
+  --device cpu
+rgnn-cli lm-ablation \
+  --corpus runs/fa-corpus/train.txt \
+  --output-dir runs/fa-ablation \
+  --graph-encoders none gat \
+  --device cpu
+rgnn-cli lm-eval --model runs/fa-pretrain --eval-file runs/fa-corpus/validation.txt
+rgnn-cli lm-run-report --run-dir runs/fa-pretrain
+```
+
+این مسیر از pretrained LM بیرونی، embedding آماده، distillation، داده synthetic
+ساخته‌شده با LLM یا judge بیرونی استفاده نمی‌کند.
+
+### قابلیت ساخت LLM بومی: مقاله‌نویسی فارسی
+
+لایهٔ LLM در رخشای برای ساخت checkpointهای بومی و task-specific از corpusهای
+فارسی محلی است. گزینهٔ فعلی این لایه، Native Persian Article LLM با namespace
+پایتونی `rakhshai_graph_nlp.llm.article` است. این بخش جایگزین موتور Graph-LM
+نیست؛ بلکه tokenizer، graph builder، model، trainer و graph memory موجود در
+`rakhshai_graph_nlp.lm` را در یک pipeline مقاله‌محور برای آموزش و تولید
+ساختاریافته بسته‌بندی می‌کند.
+
+جریان فنی:
+
+- `article-prepare` دادهٔ خام مقاله را از TXT/JSONL/CSV/TSV نرمال می‌کند،
+  قالب آموزشی مقاله‌محور می‌سازد و فایل‌های `corpus.txt`، `train.txt`،
+  `validation.txt`، `prepared_articles.jsonl`، `rejected_records.jsonl` و
+  `manifest.json` را می‌نویسد.
+- `article-audit` کیفیت corpus بومی، خطر تکرار، شاخص‌های سطحی فارسی و رفتار
+  tokenizer را قبل از آموزش سنگین بررسی می‌کند.
+- `article-train` یک checkpoint مقاله‌محور Graph-LM را با artifactهای عادی
+  مدل، tokenizer، گراف، graph memory و metrics آموزش می‌دهد و علاوه بر آن
+  `article_llm_config.json` را برای metadata مربوط به workflow مقاله می‌نویسد.
+- `article-ablation` variantهای بدون گراف، گراف‌دار، scopeهای گراف و گروه‌های
+  relation را اجرا می‌کند و metrics اعتبارسنجی، fusion stats و zero-gate report
+  را ثبت می‌کند.
+- `article-generate` همان checkpoint را بارگذاری می‌کند و مقالهٔ فارسی
+  ساختاریافته را به صورت Markdown یا JSON برمی‌گرداند. CLI همچنان دستورهای
+  سطح بالای `article-*` را نگه می‌دارد و نام artifactها تغییر نمی‌کند.
+
+مسیر کامل ساخت و آموزش:
+
+1. دادهٔ مقاله را به صورت TXT، JSONL، CSV یا TSV آماده کنید. در فایل‌های
+   ساختاریافته، فیلد `body` ضروری است و `title`، `summary`، `keywords` و
+   `metadata` اختیاری هستند. برای رکوردهای شبیه ویکی‌پدیای فارسی می‌توانید از
+   فیلدهای `title` و `text` همراه با `--training-format wikipedia_prompt`
+   استفاده کنید.
+2. با `article-prepare` رکوردها را نرمال کنید، متن‌های کوتاه را کنار بگذارید
+   و splitهای تکرارپذیر `train.txt` و `validation.txt` بسازید.
+3. قبل از آموزش سنگین، `article-audit` را اجرا کنید. این دستور پوشش نویسه‌های
+   فارسی، خطر تکرار، پوشش metadata/source و رفتار tokenizer را گزارش می‌دهد؛
+   برای انتخاب بین `word`، `bpe` و `unigram` می‌توانید probe آموزشی tokenizer
+   را هم فعال کنید.
+4. با `article-train` آموزش را اجرا کنید. نمونهٔ زیر از CUDA، AMP،
+   `context_gated` graph fusion، tokenizer نوع Unigram و graph cache قابل‌استفاده
+   مجدد استفاده می‌کند. برای ادامهٔ اجرای قطع‌شده، از
+   `--resume-from runs/article-llm-fa/training_state.pt` استفاده کنید.
+5. بعد از آموزش، فایل‌های `metrics.json`، `article_llm_config.json`،
+   `config.json`، `generation_config.json`، `tokenizer.json`، `model.pt`،
+   `corpus.txt` و در اجراهای گراف‌دار `graph.pt` و `graph_memory.pt` را بررسی
+   کنید.
+6. checkpoint ساخته‌شده را با `article-generate` یا API پایتونی پایین استفاده
+   کنید.
+
+```bash
+rgnn-cli article-prepare \
+  --input data/persian_articles.jsonl \
+  --output-dir runs/articles-prepared \
+  --input-format jsonl \
+  --min-body-chars 400 \
+  --validation-ratio 0.1
+
+rgnn-cli article-audit \
+  --input data/persian_articles.jsonl \
+  --output-dir runs/articles-audit \
+  --input-format jsonl \
+  --min-body-chars 400 \
+  --tokenizer-types word bpe unigram
+
+rgnn-cli article-train \
+  --corpus runs/articles-prepared/corpus.txt \
+  --output-dir runs/article-llm-fa \
+  --device cuda \
+  --amp \
+  --batch-size 16 \
+  --epochs 10 \
+  --block-size 256 \
+  --graph-encoder gat \
+  --fusion context_gated \
+  --graph-cache-dir runs/graph-cache \
+  --tokenizer-type unigram \
+  --unigram-num-pieces 32000
+```
+
+استفاده از checkpoint آموزش‌دیده از CLI:
+
+```bash
+rgnn-cli article-generate \
+  --model runs/article-llm-fa \
+  --topic "آینده هوش مصنوعی در آموزش فارسی" \
+  --audience "دانشجویان" \
+  --tone "تحلیلی" \
+  --sections 4 \
+  --max-new-tokens 700 \
+  --output-format markdown \
+  --output-path runs/article-llm-fa/education_article.md
+
+rgnn-cli article-generate \
+  --model runs/article-llm-fa \
+  --topic "اقتصاد دیجیتال ایران" \
+  --sections 4 \
+  --output-format json \
+  --output-path runs/article-llm-fa/economy_article.json
+```
+
+وقتی `article-train` همین `corpus.txt` آماده‌شده را می‌گیرد، از فایل‌های
+کناری `train.txt` و `validation.txt` ساخته‌شده توسط `article-prepare` استفاده
+می‌کند.
+
+در `article-generate`، Graph Memory به صورت پیش‌فرض فعال است. اگر checkpoint
+شامل `graph_memory.pt` باشد، همان حافظه بارگذاری می‌شود؛ اگر نباشد و
+`corpus.txt` در checkpoint وجود داشته باشد، حافظه از corpus و
+`graph_config.json` بازسازی می‌شود. برای خاموش‌کردن حافظه در تولید مقاله:
+
+```bash
+rgnn-cli article-generate \
+  --model runs/article-llm-fa \
+  --topic "آینده آموزش فارسی" \
   --graph-memory off
+```
+
+استفاده از همین checkpoint از پایتون:
+
+```python
+from rakhshai_graph_nlp.llm.article import (
+    ArticleGenerationConfig,
+    generate_persian_article,
+)
+
+article = generate_persian_article(
+    ArticleGenerationConfig(
+        model_dir="runs/article-llm-fa",
+        topic="آینده آموزش فارسی",
+        audience="دانشجویان",
+        tone="تحلیلی",
+        sections=4,
+        max_new_tokens=700,
+        graph_memory=True,
+        device="cuda",
+    )
+)
+
+print(article.full_markdown)
+print(article.to_json())
 ```
 
 ## چرا گراف؟
@@ -367,8 +530,8 @@ rgnn-cli generate \
 
 ## مؤلفه‌های اصلی
 
-از نسخهٔ `2.1.0`، API پایتون پروژه پایدار است (`API_STATUS = "stable"` و
-`__api_version__ = "2.1"`). برای کدهای کاربردی می‌توانید سطح رسمی را مستقیم
+از نسخهٔ `2.2.0`، API پایتون پروژه پایدار است (`API_STATUS = "stable"` و
+`__api_version__ = "2.2"`). برای کدهای کاربردی می‌توانید سطح رسمی را مستقیم
 از `rakhshai_graph_nlp` یا از facade صریح `rakhshai_graph_nlp.api` import کنید:
 
 ```python
@@ -403,6 +566,12 @@ from rakhshai_graph_nlp.api import GraphCausalLM, PersianTokenizer
 | `LMTrainer`، `LMTrainingConfig`، `train_graph_lm` | APIهای پایدار آموزش Graph-LM با checkpoint، validation و perplexity |
 | `TextAugmentationConfig`، `augment_text`، `augment_graph_data` | ابزارهای regularization متن و گراف برای دادهٔ کم |
 | `PoemRecommender`، `build_poem_index` | embedding، index و جست‌وجوی شعر با Graph-LM |
+| `rakhshai_graph_nlp.llm.article` | namespace سطح workflow برای مقاله‌نویسی فارسی که روی موتور Graph-LM ساخته شده است |
+| `ArticleCorpusConfig`، `prepare_article_corpus` | API آماده‌سازی دیتاست مقاله از ورودی‌های TXT/JSONL/CSV/TSV |
+| `ArticleAuditConfig`، `audit_article_corpus` | API audit بومی corpus مقاله و benchmark توکنایزر |
+| `ArticleTrainingConfig`، `train_article_llm` | پروفایل آموزش مقاله‌محور که همچنان artifactهای عادی checkpoint در Graph-LM را می‌نویسد |
+| `ArticleAblationConfig`، `run_article_ablation` | runner بومی برای ablation گراف در workflow مقاله |
+| `ArticleGenerationConfig`، `generate_persian_article`، `PersianArticle` | API تولید مقالهٔ فارسی ساختاریافته با خروجی Markdown و JSON |
 | `--graph-encoder none` | baseline بدون گراف برای مقایسه با Graph-LM و سنجش اثر واقعی GNN/fusion |
 | `GCNClassifier` | مدل GCN برای طبقه‌بندی گره‌ها |
 | `GraphSAGEClassifier` | مدل GraphSAGE برای یادگیری از ساختار همسایگی |
@@ -1214,6 +1383,8 @@ rakhshai_graph_nlp/
 ├── graphs/          # توابع ساخت گراف
 ├── models/          # مدل‌های GNN
 ├── lm/              # PersianTokenizer، LMDataset، GraphCausalLM، Graph Memory، LMTrainer و generate
+├── llm/             # workflowهای بومی سطح بالا که روی موتور Graph-LM ساخته شده‌اند
+├── article_llm/     # مسیر سازگاری برای workflow مقاله‌نویسی بومی
 ├── tasks/           # وظایف کاربردی
 ├── explain/         # ابزارهای تبیین اولیه
 ├── metrics.py       # معیارهای ارزیابی
