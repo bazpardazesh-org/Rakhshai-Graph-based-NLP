@@ -15,13 +15,42 @@ from rakhshai_graph_nlp.llm.article import (
     prepare_article_corpus,
     run_article_ablation,
 )
-from rakhshai_graph_nlp.llm.article.core import _parse_generated_article
-from rakhshai_graph_nlp.cli import main
+from rakhshai_graph_nlp.llm.article.core import (
+    _load_generation_artifacts,
+    _parse_generated_article,
+)
+from rakhshai_graph_nlp.cli import _build_lm_parser, main
 from rakhshai_graph_nlp.lm.model import GraphLMConfig, GraphTokenFusion
 
 
 def test_article_llm_compatibility_alias():
     assert article_llm.PersianArticle is PersianArticle
+
+
+def test_article_generation_defaults_match_conservative_release_profile():
+    config = ArticleGenerationConfig(model_dir="model", topic="نوروز")
+    assert config.audience == "عمومی"
+    assert config.tone == "دانشنامه‌ای"
+    assert config.sections == 2
+    assert config.min_new_tokens == 80
+    assert config.max_new_tokens == 320
+    assert config.temperature == 0.25
+    assert config.top_k == 8
+    assert config.repetition_penalty == 1.45
+    assert config.graph_memory is False
+
+    args = _build_lm_parser().parse_args(
+        ["article-generate", "--model", "model", "--topic", "نوروز"]
+    )
+    assert args.audience == config.audience
+    assert args.tone == config.tone
+    assert args.sections == config.sections
+    assert args.min_new_tokens == config.min_new_tokens
+    assert args.max_new_tokens == config.max_new_tokens
+    assert args.temperature == config.temperature
+    assert args.top_k == config.top_k
+    assert args.repetition_penalty == config.repetition_penalty
+    assert args.graph_memory == "off"
 
 
 def test_prepare_article_corpus_reads_txt_jsonl_and_csv(tmp_path):
@@ -382,6 +411,8 @@ def test_article_cli_train_and_generate_outputs_developer_artifacts(tmp_path):
         "generation_config.json",
         "metrics.json",
         "graph.pt",
+        "graph_memory.pt",
+        "graph_memory_config.json",
         "article_llm_config.json",
         "corpus.txt",
     ]:
@@ -394,6 +425,26 @@ def test_article_cli_train_and_generate_outputs_developer_artifacts(tmp_path):
         (output_dir / "article_llm_config.json").read_text(encoding="utf-8")
     )
     assert article_config["data_split"]["uses_prepared_splits"] is True
+
+    memory_config_path = output_dir / "graph_memory_config.json"
+    memory_config = json.loads(memory_config_path.read_text(encoding="utf-8"))
+    memory_config["enabled"] = False
+    memory_config_path.write_text(
+        json.dumps(memory_config, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    artifacts = _load_generation_artifacts(
+        ArticleGenerationConfig(
+            model_dir=str(output_dir),
+            topic="آموزش مدل فارسی",
+            min_new_tokens=0,
+            max_new_tokens=1,
+            graph_memory=True,
+            device="cpu",
+        )
+    )
+    assert artifacts[5] is not None
+    assert artifacts[6].enabled is True
 
     article = generate_persian_article(
         ArticleGenerationConfig(

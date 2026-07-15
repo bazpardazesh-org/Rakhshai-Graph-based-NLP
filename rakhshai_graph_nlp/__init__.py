@@ -7,7 +7,7 @@ from typing import Any
 
 from . import api as _api
 
-__version__ = "2.2.0"
+__version__ = "2.2.1"
 API_STATUS = _api.API_STATUS
 API_VERSION = _api.API_VERSION
 STABLE_API_VERSION = _api.STABLE_API_VERSION

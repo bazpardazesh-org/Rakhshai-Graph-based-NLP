@@ -308,7 +308,7 @@ This is the default graph-enabled V2 comparison point.
 
 ## V2 Release Surface
 
-- Package metadata reports `2.2.0`.
+- Package metadata reports `2.2.1`.
 - The default Graph-LM graph is multi-relation (includes `dependency`) with
   parallel edges per relation.
 - The tokenizer writes `tokenizer_version = 3` and reserves a `<mask>` token.

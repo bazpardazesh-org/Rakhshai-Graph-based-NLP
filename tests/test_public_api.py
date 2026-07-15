@@ -3,7 +3,7 @@ from rakhshai_graph_nlp import api
 
 
 def test_stable_api_metadata_and_exports():
-    assert rgnn.__version__ == "2.2.0"
+    assert rgnn.__version__ == "2.2.1"
     assert rgnn.API_STATUS == "stable"
     assert rgnn.__api_version__ == "2.2"
     assert api.API_STATUS == "stable"

@@ -32,6 +32,16 @@ DEFAULT_ARTICLE_GRAPH_RELATIONS = (
     "topic_document",
 )
 
+DEFAULT_ARTICLE_GENERATION_AUDIENCE = "عمومی"
+DEFAULT_ARTICLE_GENERATION_TONE = "دانشنامه‌ای"
+DEFAULT_ARTICLE_GENERATION_SECTIONS = 2
+DEFAULT_ARTICLE_GENERATION_MIN_NEW_TOKENS = 80
+DEFAULT_ARTICLE_GENERATION_MAX_NEW_TOKENS = 320
+DEFAULT_ARTICLE_GENERATION_TEMPERATURE = 0.25
+DEFAULT_ARTICLE_GENERATION_TOP_K = 8
+DEFAULT_ARTICLE_GENERATION_REPETITION_PENALTY = 1.45
+DEFAULT_ARTICLE_GENERATION_GRAPH_MEMORY = False
+
 
 @dataclass
 class ArticleCorpusConfig:
@@ -155,15 +165,15 @@ class ArticleGenerationConfig:
 
     model_dir: str
     topic: str
-    audience: str = "عمومی"
-    tone: str = "تحلیلی"
-    sections: int = 3
-    min_new_tokens: int = 80
-    max_new_tokens: int = 300
-    temperature: float = 0.8
-    top_k: int = 50
-    repetition_penalty: float = 1.15
-    graph_memory: bool = True
+    audience: str = DEFAULT_ARTICLE_GENERATION_AUDIENCE
+    tone: str = DEFAULT_ARTICLE_GENERATION_TONE
+    sections: int = DEFAULT_ARTICLE_GENERATION_SECTIONS
+    min_new_tokens: int = DEFAULT_ARTICLE_GENERATION_MIN_NEW_TOKENS
+    max_new_tokens: int = DEFAULT_ARTICLE_GENERATION_MAX_NEW_TOKENS
+    temperature: float = DEFAULT_ARTICLE_GENERATION_TEMPERATURE
+    top_k: int = DEFAULT_ARTICLE_GENERATION_TOP_K
+    repetition_penalty: float = DEFAULT_ARTICLE_GENERATION_REPETITION_PENALTY
+    graph_memory: bool = DEFAULT_ARTICLE_GENERATION_GRAPH_MEMORY
     graph_memory_top_k: int = 32
     graph_memory_depth: int = 1
     graph_memory_max_edges: int = 256
@@ -1730,7 +1740,7 @@ def _load_generation_artifacts(config: ArticleGenerationConfig):
     corpus_path = model_dir / "corpus.txt"
 
     if model.config.graph_encoder != "none" and config.graph_memory:
-        graph_memory, saved_memory_config = GraphMemoryArtifact.load(
+        graph_memory, _ = GraphMemoryArtifact.load(
             model_dir,
             map_location=device,
         )
@@ -1751,9 +1761,9 @@ def _load_generation_artifacts(config: ArticleGenerationConfig):
                 tokenizer,
                 graph_config,
             )
-        graph_memory_config.enabled = (
-            saved_memory_config.enabled and config.graph_memory
-        )
+        # The release profile controls the default, while an explicit runtime
+        # request can still enable the optional graph-memory retrieval path.
+        graph_memory_config.enabled = config.graph_memory
 
     if (
         model.config.graph_encoder != "none"

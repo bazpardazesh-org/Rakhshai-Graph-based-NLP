@@ -9,7 +9,18 @@ from typing import Any
 
 import torch
 
-from .core import DEFAULT_ARTICLE_GRAPH_RELATIONS
+from .core import (
+    DEFAULT_ARTICLE_GENERATION_AUDIENCE,
+    DEFAULT_ARTICLE_GENERATION_GRAPH_MEMORY,
+    DEFAULT_ARTICLE_GENERATION_MAX_NEW_TOKENS,
+    DEFAULT_ARTICLE_GENERATION_MIN_NEW_TOKENS,
+    DEFAULT_ARTICLE_GENERATION_REPETITION_PENALTY,
+    DEFAULT_ARTICLE_GENERATION_SECTIONS,
+    DEFAULT_ARTICLE_GENERATION_TEMPERATURE,
+    DEFAULT_ARTICLE_GENERATION_TONE,
+    DEFAULT_ARTICLE_GENERATION_TOP_K,
+    DEFAULT_ARTICLE_GRAPH_RELATIONS,
+)
 from . import (
     ArticleAblationConfig,
     ArticleAuditConfig,
@@ -724,21 +735,47 @@ def add_article_subcommands(subparsers: Any) -> None:
     )
     article_generate.add_argument("--model", required=True)
     article_generate.add_argument("--topic", required=True)
-    article_generate.add_argument("--audience", default="عمومی")
-    article_generate.add_argument("--tone", default="تحلیلی")
-    article_generate.add_argument("--sections", type=int, default=3)
-    article_generate.add_argument("--min-new-tokens", type=int, default=80)
-    article_generate.add_argument("--max-new-tokens", type=int, default=300)
-    article_generate.add_argument("--temperature", type=float, default=0.8)
-    article_generate.add_argument("--top-k", type=int, default=50)
-    article_generate.add_argument("--repetition-penalty", type=float, default=1.15)
+    article_generate.add_argument(
+        "--audience", default=DEFAULT_ARTICLE_GENERATION_AUDIENCE
+    )
+    article_generate.add_argument("--tone", default=DEFAULT_ARTICLE_GENERATION_TONE)
+    article_generate.add_argument(
+        "--sections", type=int, default=DEFAULT_ARTICLE_GENERATION_SECTIONS
+    )
+    article_generate.add_argument(
+        "--min-new-tokens",
+        type=int,
+        default=DEFAULT_ARTICLE_GENERATION_MIN_NEW_TOKENS,
+    )
+    article_generate.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=DEFAULT_ARTICLE_GENERATION_MAX_NEW_TOKENS,
+    )
+    article_generate.add_argument(
+        "--temperature",
+        type=float,
+        default=DEFAULT_ARTICLE_GENERATION_TEMPERATURE,
+    )
+    article_generate.add_argument(
+        "--top-k", type=int, default=DEFAULT_ARTICLE_GENERATION_TOP_K
+    )
+    article_generate.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=DEFAULT_ARTICLE_GENERATION_REPETITION_PENALTY,
+    )
     article_generate.add_argument(
         "--output-format",
         choices=["markdown", "json"],
         default="markdown",
     )
     article_generate.add_argument("--output-path", default=None)
-    article_generate.add_argument("--graph-memory", choices=["on", "off"], default="on")
+    article_generate.add_argument(
+        "--graph-memory",
+        choices=["on", "off"],
+        default="on" if DEFAULT_ARTICLE_GENERATION_GRAPH_MEMORY else "off",
+    )
     article_generate.add_argument("--graph-memory-top-k", type=int, default=32)
     article_generate.add_argument("--graph-memory-depth", type=int, default=1)
     article_generate.add_argument("--graph-memory-max-edges", type=int, default=256)

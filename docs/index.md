@@ -27,7 +27,7 @@ pip install -e .[docs]
 - **Persian Graph-LM path**: `PersianTokenizer`, `build_graph_lm_graph`, `GraphCausalLM` and `LMTrainer` provide a causal LM baseline with optional graph encoding and graph-token fusion. The stable V2 architecture is documented in [Rakhshai Graph-LM V2 Architecture](graph_lm_v2.md), the multi-relation graph is documented in [Rakhshai Multi-Relation Persian Graph](multi_relation_persian_graph.md), the encoder upgrade is documented in [Rakhshai Graph Reasoning Core](graph_reasoning_core.md), and the low-data engine is documented in [Rakhshai Low-Data Training Engine](low_data_training_engine.md).
 - **Training pipeline**: `rgnn-cli` can train on CSV, TSV or JSONL text datasets, create train/validation/test splits, report accuracy and macro-F1, and save model checkpoints.
 - **Application tasks**: `textrank_summarise`, `gat_summarise`, `recommend_similar`, `HateSpeechDetector` and others.
-- **Stable Python API**: package version `2.2.0` exposes API version `2.2`
+- **Stable Python API**: package version `2.2.1` exposes API version `2.2`
   through `rakhshai_graph_nlp` and `rakhshai_graph_nlp.api`; see
   [Stable Public API](api.md) and the [Python API Usage Guide](api_usage.md).
 
