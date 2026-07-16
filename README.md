@@ -1,227 +1,136 @@
 English | [فارسی](README.fa.md)
 
-# Rakhshai Graph-based NLP V2
+# Rakhshai Graph-based NLP (RGN)
 
 [![CI](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml)
 
-**Rakhshai Graph-based NLP V2**: from raw Persian text to graph neural networks
-and Persian Graph-LM.
+**Build Persian graph NLP and native Graph-LM products from one open-source
+stack.**
 
-Rakhshai is the first integrated graph-oriented NLP framework for Persian. It
-turns raw Persian text into graphs that can be analyzed, trained on, and used in
-downstream models. The project models relationships between words, documents,
-and linguistic structures as graphs, and provides graph neural network models
-such as GCN, GraphSAGE, and GAT for tasks such as text classification,
-summarization, content recommendation, and text analysis.
+RGN is the first integrated graph-oriented NLP platform for Persian,
+developed by
+[Aria Haman Mehr Parseh](https://ariahaman.ir/en/). We publicly unveiled RGN
+on September 4, 2025, 10 months and 11 days before unveiling the Haman model
+on July 15, 2026. RGN combines Persian text preparation, multi-relation graph
+construction, graph neural networks, native language-model training,
+inference, checkpointing, MCP integration, and an RTL web interface in one
+Python, CLI, and UI stack.
 
-Rakhshai is designed to shorten the path to building Graph-based NLP pipelines
-for Persian: from Persian preprocessing and textual, syntactic, and semantic
-graph construction to training, evaluation, prediction on new text, and model
-save/load. Its goal is to create a practical bridge between Persian language
-processing, graph modeling, and deep graph learning.
+Use RGN to deploy the released Haman article model, train a native Persian
+Graph-LM on your own corpus, or build graph-based classification,
+summarization, recommendation, and semantic-analysis workflows.
 
-## Knowledge-Based Certification
+## Featured Model: Haman Persian Article Graph-LLM 125M
 
-**Graph-Based NLP Service Library (Rakhshai-Graph-based-NLP)**, developed by **Aria Haman Mehr Parseh**, has received knowledge-based certification in Iran.
+Continuing this path, on July 15, 2026, we unveiled
+[Haman Persian Article Graph-LLM 125M](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m)
+as the first output of Aria Haman Mehr Parseh's NLP project. This model is the
+first Iranian model developed with an Iranian architecture so that we can
+subsequently create a framework focused on Persian. It generates structured
+Persian articles from topic, audience, tone, and section controls by combining
+a decoder-only Transformer with a corpus-level lexical GCN and context-gated
+graph-token fusion.
 
-The company’s knowledge-based status can be verified through the official knowledge-based companies inquiry system by searching the company’s national ID.
+| Resource | Link |
+| --- | --- |
+| Model card and weights | [Hugging Face model](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m) |
+| Training dataset | [Haman Persian Wikipedia Articles 186K](https://huggingface.co/datasets/aria-haman/haman-fa-wikipedia-articles-186k) |
+| Reproducible training workflow | [Clean Google Colab notebook](https://colab.research.google.com/drive/1E50ISg1ANoW_rrFeRNBRcDn6C0cwfLyT?usp=sharing) |
+| Runtime and source | [Rakhshai Graph-based NLP (RGN)](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP) |
 
-- **Official inquiry link:** [Knowledge-Based Companies Inquiry System](https://pub.daneshbonyan.ir/dashboard)
-- **Company national ID:** `14009192677`
+The model remains in its dedicated Hugging Face repository so users can fetch
+versioned weights without adding large checkpoint files to this source
+repository. For files, generation examples, deployment notes, and the model
+license, see its model card.
 
-> Company: Aria Haman Mehr Parse
-> National ID: `14009192677`
-> Product: Graph-Based NLP Service Library (Rakhshai-Graph-based-NLP)
-> Field: Persian NLP, graph-based text modeling, and AI infrastructure
+### Use Haman
 
-## Rakhshai V2
-Rakhshai V2 is no longer only a graph classification toolkit; it also includes a
-real **Persian Graph-LM** path. In this path, Persian text is
-converted into numeric tokens, a word co-occurrence graph is built from the same
-corpus, a GNN produces graph embeddings, and token embeddings are combined with
-graph embeddings through **Gated Graph-Token Fusion** inside a modern
-decoder-only Transformer (RoPE positions, SwiGLU feed-forward, RMSNorm pre-norm,
-and a KV cache for generation). The model output is `batch x sequence x
-vocab_size`, designed for next-token prediction and Persian text generation.
-
-An early experiment on an expanded Persian corpus reported lower perplexity for
-the `Graph-LM / GCN + gated` path than for a no-graph baseline, but that result
-was produced before two implementation fixes (embedding initialization and
-perplexity computed from the next-token loss only). After the fixes, the graph
-fusion was redesigned with **zero-initialized gating**: the untrained model is
-exactly equivalent to the no-graph baseline, and graph information only enters
-through a learnable `tanh(alpha)` gate once training finds it useful. With this
-design, the graph path matches the baseline on the small evaluation corpus
-(no measurable advantage yet, and no harm either). This is a provisional,
-small-data observation, not a final verdict: Graph-LM is designed to exploit
-rich structures and wide-ranging relations, and a fair evaluation of that
-capacity requires training and testing on much larger Persian corpora. The
-bundled small corpus is suitable only for smoke tests and implementation-health
-checks.
-
-This open-source library is created and maintained by the
-[RakhshAI](https://rakhshai.com/) development team, affiliated with Aria Haman
-Mehr Parseh, and is released under the MIT license.
-
-## Highlights In Plain Language
-
-- **The first integrated graph-oriented NLP framework for Persian:** Rakhshai
-  provides a complete path from raw Persian text to graph construction, model
-  training, evaluation, prediction, and pipeline save/load.
-- **Dedicated GCN, GraphSAGE, and GAT implementations for Persian Graph-based
-  NLP:** Rakhshai provides three major graph neural network models in an
-  executable, integrated framework for learning on graphs built from Persian
-  text, with support for training, evaluation, prediction, and pipeline
-  save/load.
-- **Ready-to-use text classification:** With `TextGraphClassifier`, you can
-  provide texts and labels, train a model, evaluate it, and predict labels for
-  new text.
-- **Complete model and pipeline persistence:** The saved artifact includes more
-  than model weights; it also stores the vocabulary, label mapping, and graph
-  settings.
-- **GPU support for graph models:** If CUDA and an NVIDIA GPU are available,
-  PyTorch Geometric paths can run on GPU.
-- **Multiple graph types for Persian text:** Word co-occurrence graphs,
-  word-document graphs, document similarity graphs, dependency graphs, and
-  semantic graphs with FarsNet support.
-- **Several ready-made tasks:** Classification, summarization, content
-  recommendation, hate-speech detection, and network analysis.
-- **Command-line interface:** `rgnn-cli` lets you train and evaluate on
-  CSV/TSV/JSONL files without writing much code.
-- **Persian Graph-LM with a Rakhshai-specific architecture:** The `lm-train`
-  path brings together a Persian tokenizer, graph builder, GNN encoder, gated
-  graph-token fusion, a Transformer causal LM, LM-specific trainer, perplexity,
-  complete checkpointing with sparse graph artifacts, and text generation.
-- **Modern Transformer decoder:** The causal LM uses rotary position embeddings
-  (RoPE), a SwiGLU feed-forward, RMSNorm with pre-norm residuals, and a KV cache
-  during generation. Each can be switched back to the classic variant
-  (`position_encoding`, `ffn_type`, `norm_type` on `GraphLMConfig`).
-- **Persian-aware tokenization:** Punctuation is tokenized separately (Persian
-  marks are no longer glued to words and ASCII marks are no longer dropped),
-  Persian decimal/thousands separators are normalized, hamza folding and ezafe
-  handling are configurable, and `unigram` is a genuine Unigram LM tokenizer and
-  the operational default. A dedicated `<mask>` token backs masked-token training.
-- **Graph Reasoning Core for multi-relation graphs:** The graph keeps parallel
-  edges per relation (an edge can carry several relations at once), and the
-  encoder uses relation IDs through `bias`, `embedding` (default), or `rgcn`
-  modes, uses `RGCN` for relation-aware message passing, gives non-token nodes
-  learned node-type embeddings, and optionally uses node importance and subgraph
-  pooling.
-- **Adaptive Graph-Text Fusion:** The model can control text/graph fusion at the
-  `token`, `sentence`, and `subgraph` levels. Graph usage strength is controlled
-  by scale/dropout, and gate statistics are stored in `metrics.json` so you can
-  inspect where the model actually used graph information.
-- **Low-Data Training Engine:** The Graph-LM path runs by default with text
-  augmentation, node/edge dropout, subgraph sampling, contrastive learning,
-  curriculum learning, early stopping, and overfitting reports so it memorizes
-  less and generalizes better on small corpora.
-- **Graph Memory for generation time:** Graph checkpoints now store a separate
-  graph memory. The `generate` command retrieves prompt-related nodes and
-  subgraphs by default and passes only that limited subgraph into fusion, so the
-  model uses prompt-relevant graph memory instead of the entire graph.
-- **Native LLM-building workflows:** Rakhshai can build native Persian LLM
-  checkpoints from project-owned corpora instead of wrapping an external
-  pretrained model. These workflows live under `rakhshai_graph_nlp.llm` and use
-  `rakhshai_graph_nlp.lm` as the lower-level Graph-LM engine. The first
-  available option is the Native Persian Article LLM workflow:
-  `article-prepare`, `article-audit`, `article-train`, `article-ablation`, and
-  `article-generate` prepare article datasets, audit native data/tokenizer
-  quality, train an article-focused checkpoint, run graph ablations, and return
-  structured Markdown or JSON. See `docs/llm.md` and `docs/article_llm.md`.
-- **No-graph baseline for fair comparison:** With `--graph-encoder none`, you
-  can train the same Transformer causal LM without GNN and fusion, then measure
-  the true effect of the graph with validation loss and perplexity.
-- **Controllable text generation:** The `generate` command supports options
-  such as `--temperature`, `--top-k`, `--min-new-tokens`, and
-  `--repetition-penalty`.
-
-## MCP Support in Rakhshai Graph-based NLP
-
-MCP support has been added as a complementary capability to make it easier to
-connect the project to external tools, services, and models. This feature is
-especially useful for building agents and enables a more structured, extensible,
-and controllable interaction with different parts of the project.
-
-### Capabilities Exposed Through MCP
-
-- Persian text analysis with concept, keyword, and signal extraction
-- Knowledge graph construction from Persian text with nodes, edges, relations,
-  and weights
-- Graph-based summarization using important nodes and relations
-- Graph Memory retrieval for relevant evidence
-- Response or analysis generation using Graph-LM and graph evidence
-- Explainable outputs through graph nodes, relations, and reasoning paths
-- Controlled access to models, graphs, runs, reports, and project documentation
-- Integration with agents, IDEs, chatbots, and intelligent workflows
-
-### MCP Evaluation Report With OpenAI Model
-
-The main MCP guide is available here:
-
-[`docs/mcp.md`](docs/mcp.md)
-
-The full evaluation report is available here:
-
-[`docs/mcp_single_poem_evaluation.md`](docs/mcp_single_poem_evaluation.md)
-
-Persian poetry was selected for this MCP test because it is harder for AI models
-to understand than ordinary Persian prose: the model has to interpret symbols,
-implicit meaning, and relationships between images such as mirror, shadow, name,
-lamp, river, thirst, home, and key.
-
-**Golden Test Insight:**
-
-**In this single-sample evaluation, Rakhshai Graph-based NLP MCP improved the
-Persian poetry analysis quality by about 19%. It also made the model's response
-four times stronger than the direct baseline in terms of using extracted graph
-evidence for better Persian text analysis.**
-
-This test was performed using OpenAI's `gpt-5.4` model.
-
-### API Setup For Running The Test
-
-To run the test, users need a valid OpenAI API key. Add it to `.env.local` in
-the project root:
-
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
-This file should not be committed to git and is already ignored through
-`.gitignore`.
-
-Install the optional OpenAI dependency too:
+Install RGN, download the published snapshot, and generate an article:
 
 ```bash
-python -m pip install -e ".[openai]"
+python -m pip install -e .
+python -m pip install huggingface_hub
+python -c 'from huggingface_hub import snapshot_download; snapshot_download(repo_id="aria-haman/haman-fa-article-graph-llm-125m", local_dir="models/haman-fa-article-graph-llm-125m")'
+
+rgnn-cli article-generate \
+  --model models/haman-fa-article-graph-llm-125m \
+  --topic "آینده هوش مصنوعی در آموزش فارسی" \
+  --audience "دانشجویان" \
+  --tone "تحلیلی" \
+  --sections 4 \
+  --max-new-tokens 700 \
+  --output-format markdown \
+  --output-path haman-article.md
 ```
 
-### Re-running The Test
+> Rakhshai Graph-based NLP (RGN) has received knowledge-based
+> certification in Iran. Official inquiry details are provided below.
 
-After setting the API key, users can re-run the test with:
+## Product Platform
 
-```bash
-python scripts/evaluate_openai_mcp_persian.py \
-  --model gpt-5.4 \
-  --temperature 0 \
-  --top-p 1 \
-  --seed 42 \
-  --max-output-tokens 3000 \
-  --direct-manual-scores 5,5,4,3,4,0 \
-  --mcp-manual-scores 5,5,5,5,5,0 \
-  --report-path docs/mcp_single_poem_evaluation.md
-```
+RGN provides four connected product layers. Teams can use each layer
+independently or combine them into a complete Persian AI workflow.
 
-## Rakhshai Graph-LM Technical Signature
+| Layer | What it provides |
+| --- | --- |
+| Persian NLP | Normalization, tokenization, linguistic analysis, and reusable features |
+| Graph intelligence | Textual, syntactic, semantic, document, and multi-relation graphs |
+| Native model engine | `rakhshai_graph_nlp.lm` for tokenizer, Graph-LM, training, evaluation, graph memory, and inference |
+| Product workflows | `rakhshai_graph_nlp.llm` for task-specific native LLM products, beginning with structured Persian article generation |
 
-The new Graph-LM architecture in Rakhshai implements this path:
+The high-level `llm` workflows use the lower-level `lm` engine; they do not
+replace it. This separation keeps the core model engine reusable while giving
+product teams stable commands and structured outputs for specific use cases.
+
+The open-source platform is created and maintained by the
+[RakhshAI](https://rakhshai.com/) team at Aria Haman Mehr Parseh and is released
+under the MIT license.
+
+## Product Capabilities
+
+- **Integrated Persian graph NLP platform:** Move from raw Persian text to
+  preprocessing, graph construction, model training, evaluation, inference,
+  and saved pipelines in one stack.
+- **Released Persian article model:** Use Haman 125M immediately, with public
+  weights, dataset, training workflow, and a structured generation interface.
+- **Native LLM production workflow:** Prepare and audit data, train and ablate
+  checkpoints, and generate Markdown or JSON through the high-level
+  `rakhshai_graph_nlp.llm` layer.
+- **Reusable Graph-LM engine:** Build with a Persian-aware tokenizer, modern
+  causal decoder, GCN/GraphSAGE/GAT/RGCN encoders, adaptive graph-text fusion,
+  Graph Memory, evaluation, and complete checkpointing.
+- **Graph intelligence toolkit:** Create co-occurrence, word-document, document
+  similarity, dependency, semantic, and multi-relation graphs.
+- **Application-ready components:** Build classification, summarization,
+  recommendation, hate-speech detection, semantic analysis, and network
+  analysis workflows.
+- **Multiple product interfaces:** Use the stable Python API, `rgnn-cli`, the
+  RTL web UI, or MCP integration for agents and automated systems.
+- **Operational controls:** Run on CPU or supported GPU paths, compare graph
+  and no-graph variants, save complete artifacts, and control generation
+  through temperature, top-k, minimum length, and repetition settings.
+
+## MCP Integration
+
+RGN exposes its Persian text analysis, graph construction, graph-based
+summarization, Graph Memory retrieval, Graph-LM generation, explainability, and
+project resources through MCP. Product teams can connect these capabilities to
+agents, IDEs, chatbots, and automation workflows through a controlled tool
+surface.
+
+- [MCP integration and deployment guide](docs/mcp.md)
+- [Published MCP evaluation report](docs/mcp_single_poem_evaluation.md)
+
+## RGN Graph-LM Architecture
+
+RGN's Graph-LM runtime follows this path:
 
 ```text
 Persian Text
 → PersianTokenizer
 → LM Dataset
 → Multi-Relation Persian Graph
-→ Rakhshai Graph Encoder (GCN / GraphSAGE / GAT / RGCN)
+→ RGN Graph Encoder (GCN / GraphSAGE / GAT / RGCN)
 → Adaptive Graph-Text Fusion
 → Low-Data Training Engine
 → Prompt-aware Graph Memory
@@ -229,10 +138,10 @@ Persian Text
 → Text Generation
 ```
 
-The technical signature of this part of the project is:
+The core runtime combines:
 
 ```text
-Rakhshai Graph Encoder
+RGN Graph Encoder
 +
 Adaptive Graph-Text Fusion
 +
@@ -241,7 +150,7 @@ Low-Data Training Engine
 Persian Causal LM
 ```
 
-In simple terms, Rakhshai can use graph relationships between words instead of
+In simple terms, RGN can use graph relationships between words instead of
 acting as a purely sequential language model. When building the final embedding
 for each token, the model learns how much to trust the text embedding and how
 much to trust the graph embedding. The combination is not fixed by hand; it is
@@ -250,74 +159,29 @@ each sequence position, sentence level for controlling overall graph strength in
 the context, and subgraph level for injecting a summary of non-token nodes such
 as documents or topics.
 
-> **Checkpoint compatibility note.** The decoder was modernized (RoPE, SwiGLU,
-> RMSNorm, pre-norm) and the `unigram` tokenizer is now a real Unigram LM and the
-> operational default, while the default `ezafe_mode` is now `marker`. Several
-> defaults changed for better Persian generation: the tokenizer (`unigram`), the
-> graph relation mode (`embedding`), best-checkpoint selection
-> (`--checkpoint-metric next_token`), and the default relation set now includes
-> `dependency`. The tokenizer also adds a real `<mask>` token (vocabulary grows by
-> one, `tokenizer_version = 3`), the multi-relation graph keeps **parallel edges
-> per relation** (an edge can carry several relations at once), and non-token
-> graph nodes get learned node-type embeddings. Checkpoints saved before these
-> changes still load (`from_pretrained` uses `strict=False`) but their transformer
-> weights no longer match the new layout, so retrain to use the new architecture.
-> Tokenizers without `<mask>` load with it mapped to `<unk>`; tokenizer configs
-> saved before `ezafe_mode` existed keep the old `collapse` behaviour on load.
+> **Checkpoint compatibility:** Older checkpoints load in compatibility mode,
+> but retraining is required to use the current decoder and tokenizer layout.
+> See the [Graph-LM V2 guide](docs/graph_lm_v2.md) for migration details.
 
-## Latest Graph-LM Smoke Result
+## Choose Your Product Path
 
-After clearing the old `runs` artifacts, the Graph-LM path was rechecked on
-2026-06-14 with `data/expanded_persian_lm.txt`, `seed=0`, `epochs=3`,
-`d_model=64`, `n_layers=1`, `block_size=64`, and `device=cpu`. These are small
-smoke runs for implementation health, not model-quality claims.
+| Goal | Recommended path |
+| --- | --- |
+| Generate structured Persian articles now | Use the [released Haman model](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m) |
+| Build another task-specific native LLM | Start with the high-level [`llm` workflows](docs/llm.md) |
+| Train or extend the reusable model engine | Use the lower-level [`lm` engine](docs/graph_lm_v2.md) |
+| Build graph-based NLP applications | Use the graph builders, GNN models, tasks, Python API, or CLI in this repository |
 
-| Model | best validation loss | best perplexity | Output path |
-| --- | ---: | ---: | --- |
-| `Baseline / no graph` | 6.023 | 412.786 | `runs/graph-lm-smoke/baseline-s0/metrics.json` |
-| `Graph-LM / GCN + gated` | 5.985 | 397.509 | `runs/graph-lm-smoke/graph-gcn-s0/metrics.json` |
+## Train a Custom Graph-LM
 
-The previous numbers in this section were from older artifacts that have now
-been removed from `runs`. The current smoke results and the unit-test report are
-summarized in `runs/latest/RESULTS.md`.
-
-**Scope of this benchmark.** These numbers are a provisional, small-data
-observation. No conclusion about the value of graph fusion for Persian language
-modeling should be drawn from this corpus: it exists for smoke testing,
-implementation-health checks, and quick comparisons of settings. Graph-LM is
-designed to exploit rich structures and wide-ranging lexical relations, and
-judging that capacity fairly requires training and evaluation on substantially
-larger Persian corpora.
-
-**Design philosophy.** Rakhshai develops and evaluates a native, self-contained
-Persian language-model architecture. For now the project intentionally does not
-use external pretrained language models, knowledge distillation from other
-models, pretrained embeddings, or LLM-generated synthetic data, so that the
-capabilities and limits of the Graph-LM architecture itself can be measured
-transparently, without borrowing knowledge from other models.
-
-Sample generated output with a corpus smaller than large language models:
-
-```text
-prompt: امروز در تهران
-output: امروز در تهران باران آرامی بارید و خیابان‌ها خلوت‌تر از روزهای گذشته بودند ...
-```
-
-For a more scientific result, repeat the same experiment with several seeds,
-several graph encoders such as `GCN`, `GAT`, `GraphSAGE`, and `RGCN`, several
-relation-aware modes such as `bias` and `embedding`, and several fusion methods
-such as `gated` and `additive`.
-
-## Ready Dataset Sample For Testing Graph-LM
-
-A ready Persian Wikipedia sample for quick Graph-LM testing is available at:
+A Persian Wikipedia sample for a quick local start is included at:
 
 ```text
 data/wiki_fa_50k.txt
 ```
 
-If you do not want to download a dataset separately, you can train and generate
-directly with this file. To rebuild the same file or create a larger sample, use:
+You can train and generate directly with this file. To rebuild it or create a
+larger sample, use:
 
 ```bash
 python scripts/download_fa_wiki_sample.py \
@@ -380,14 +244,20 @@ rgnn-cli lm-run-report --run-dir runs/fa-pretrain
 The native LM engine does not use external pretrained LMs, pretrained
 embeddings, distillation, LLM-generated synthetic data or external LLM judges.
 
-### Native LLM-building workflow: Persian article generation
+## Native Persian Article LLM Workflow
 
-Rakhshai's LLM workflow layer is where the project builds task-specific native
-LLM checkpoints from local Persian corpora. The current workflow option is
-Native Persian Article LLM, exposed through `rakhshai_graph_nlp.llm.article`.
-It does not replace the Graph-LM engine; it packages the lower-level
-`rakhshai_graph_nlp.lm` tokenizer, graph builder, model, trainer and graph
-memory into an article-focused training and generation pipeline.
+This is the product workflow behind the released
+[Haman Persian Article Graph-LLM 125M](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m).
+You can use the published checkpoint with its
+[186K-article dataset](https://huggingface.co/datasets/aria-haman/haman-fa-wikipedia-articles-186k)
+and [clean Colab workflow](https://colab.research.google.com/drive/1E50ISg1ANoW_rrFeRNBRcDn6C0cwfLyT?usp=sharing),
+or train a task-specific native checkpoint on your own Persian corpus with the
+commands below.
+
+The workflow is exposed through `rakhshai_graph_nlp.llm.article`. It packages
+the lower-level `rakhshai_graph_nlp.lm` tokenizer, graph builder, model,
+trainer, and graph memory into an article-focused training and generation
+pipeline; the reusable Graph-LM engine remains independent.
 
 Technical flow:
 
@@ -420,7 +290,7 @@ Complete build-and-train flow:
    `bpe` and `unigram`.
 4. Train with `article-train`. The command below uses CUDA, AMP, a
    `context_gated` graph fusion path, a Unigram tokenizer and a reusable graph
-   cache. Use `--resume-from runs/article-llm-fa/training_state.pt` to continue
+   cache. Use `--resume-from runs/article-llm-fa` to continue
    an interrupted run.
 5. Inspect `metrics.json`, `article_llm_config.json`, `config.json`,
    `generation_config.json`, `tokenizer.json`, `model.pt`, `corpus.txt` and,
@@ -821,7 +691,7 @@ viewer, **live-progress Graph-LM training**, graph-memory text generation,
 graph-based classification, the analytical tasks (summarization, recommendation,
 hate-speech), and a guided **"Full Power"** step-by-step tour.
 
-## Quick Start
+## Graph Classification Quick Start
 
 ```python
 from rakhshai_graph_nlp import TextGraphClassifier
@@ -848,10 +718,12 @@ print(loaded.predict(["مجلس درباره قانون جدید بحث کرد"]
 
 ## Command-Line Interface
 
-`rgnn-cli` has two main paths: the older stable graph-based Persian text
-classification path, and the newer Graph-LM path for training graph-oriented
-Persian language models. If you do not provide a subcommand, the classification
-path runs. For LM, use `lm-train` and `generate`.
+`rgnn-cli` exposes three paths: classic graph-based Persian NLP through the
+default classification command; the lower-level `lm` engine through commands
+such as `lm-build-corpus`, `lm-pretrain`, `lm-train`, `lm-eval`, and `generate`;
+and high-level `llm` product workflows through `article-prepare`,
+`article-audit`, `article-train`, `article-ablation`, and `article-generate`.
+If you do not provide a subcommand, the classic classification path runs.
 
 Train Graph-LM:
 
@@ -1394,178 +1266,80 @@ docs/                # MkDocs documentation
 tests/               # unit and end-to-end tests
 ```
 
-## Initial Graph-LM Benchmark
+## Validation and Quality
 
-To test the Graph-LM path, an expanded Persian corpus at
-`data/expanded_persian_lm.txt` was used. The corpus includes sentences about
-cities, politics, education, economy, sports, art, and the Graph-LM architecture
-itself, so political, weather, education, and graph-modeling lexical
-relationships are visible in the co-occurrence graph.
-
-Latest smoke comparison after clearing old artifacts on 2026-06-14:
-
-| Model | best validation loss | best perplexity | Output path |
-| --- | ---: | ---: | --- |
-| `Baseline / no graph` | 6.023 | 412.786 | `runs/graph-lm-smoke/baseline-s0/metrics.json` |
-| `Graph-LM / GCN + gated` | 5.985 | 397.509 | `runs/graph-lm-smoke/graph-gcn-s0/metrics.json` |
-
-This benchmark is a smoke test of the implementation, not an evaluation of
-model quality; see "Scope of this benchmark" above.
-
-Sample generated text with the demo model:
-
-```text
-prompt: امروز در تهران
-output: امروز در تهران باران آرامی بارید و خیابان‌ها خلوت‌تر از روزهای گذشته بودند ...
-```
-
-This small benchmark proves the path and provides an initial comparison.
-
-## Reproducible Benchmarks
-
-A small Persian benchmark is available at
-`benchmarks/persian_text_classification.csv` so the full path of graph
-construction, training, evaluation, and report saving can be checked quickly.
-The dataset contains 24 short news texts in three classes, `politics`, `sports`,
-and `art`. It is useful for smoke testing and comparing settings, not for making
-final model-quality claims.
-
-Latest reproducible CPU runs from 2026-06-14 with `seed=0`:
-
-| Model | validation accuracy | test accuracy | test macro-F1 | Report path |
-| --- | ---: | ---: | ---: | --- |
-| `gcn` | 1.00 | 0.75 | 0.60 | `runs/benchmarks/persian-classification-gcn/metrics.json` |
-| `graphsage` | 1.00 | 1.00 | 1.00 | `runs/benchmarks/persian-classification-graphsage/metrics.json` |
-| `gat` | 1.00 | 1.00 | 1.00 | `runs/benchmarks/persian-classification-gat/metrics.json` |
-
-Example `metrics.json` output:
-
-```json
-{
-  "dataset": "benchmarks/persian_text_classification.csv",
-  "model": "gcn",
-  "device": "cpu",
-  "num_documents": 24,
-  "num_nodes": 175,
-  "num_classes": 3,
-  "splits": {
-    "train": {"count": 16, "accuracy": 1.0, "macro_f1": 1.0},
-    "validation": {"count": 4, "accuracy": 1.0, "macro_f1": 1.0},
-    "test": {"count": 4, "accuracy": 0.75, "macro_f1": 0.6}
-  }
-}
-```
-
-Run the same benchmark yourself:
+RGN ships with unit, integration, CLI, checkpoint, graph, and end-to-end
+tests. Small datasets under `benchmarks/` and `data/` are included for
+implementation checks and reproducible local runs.
 
 ```bash
-python -m rakhshai_graph_nlp.cli \
-  --dataset benchmarks/persian_text_classification.csv \
-  --model gcn \
-  --epochs 50 \
-  --hidden-dim 8 \
-  --learning-rate 0.01 \
-  --dropout 0.2 \
-  --seed 0 \
-  --device cpu \
-  --output-dir runs/benchmarks/persian-classification-gcn
+python -m pytest
 ```
 
-Compare the three main models:
+Additional architecture, benchmark methodology, and evaluation details are
+available in the technical documentation:
 
-```bash
-for model in gcn graphsage gat; do
-  python -m rakhshai_graph_nlp.cli \
-    --dataset benchmarks/persian_text_classification.csv \
-    --model "$model" \
-    --epochs 50 \
-    --hidden-dim 8 \
-    --learning-rate 0.01 \
-    --dropout 0.2 \
-    --seed 0 \
-    --device cpu \
-    --output-dir "runs/benchmarks/persian-classification-$model"
-done
-```
+- [Graph-LM V2](docs/graph_lm_v2.md)
+- [Graph Reasoning Core](docs/graph_reasoning_core.md)
+- [Low-Data Training Engine](docs/low_data_training_engine.md)
+- [MCP evaluation report](docs/mcp_single_poem_evaluation.md)
 
-After running, each model report is stored in `metrics.json`. To see a summary:
+## Deployment Notes
 
-```bash
-python - <<'PY'
-import json
-from pathlib import Path
+- Generation quality depends on the training corpus, tokenizer, checkpoint,
+  decoding settings, and selected graph encoder and fusion path.
+- `build_text_graph` uses a dense matrix and may require a more scalable graph
+  construction path for very large collections.
+- Haman 125M is a base article-generation checkpoint, not a chat assistant or
+  a factual authority. Review generated content before publication.
+- Train and evaluate sensitive classifiers, including hate-speech detection,
+  with representative data, error analysis, and bias controls before use.
+- Keep secrets outside the repository and review the policies of every
+  external service connected through MCP or optional integrations.
 
-for path in sorted(Path("runs/benchmarks").glob("*/metrics.json")):
-    report = json.loads(path.read_text(encoding="utf-8"))
-    test = report["splits"]["test"]
-    print(
-        f"{report['model']:10s} "
-        f"test_acc={test['accuracy']:.3f} "
-        f"test_macro_f1={test['macro_f1']:.3f} "
-        f"report={path}"
-    )
-PY
-```
+## Documentation
 
-For a more serious evaluation, run the same pipeline on known Persian
-benchmarks. Convert the dataset to CSV/TSV/JSONL with `text` and `label` columns,
-then use the same CLI command.
+| Topic | Guide |
+| --- | --- |
+| Documentation index | [`docs/index.md`](docs/index.md) |
+| Stable Python API | [`docs/api.md`](docs/api.md) |
+| Python API walkthrough | [`docs/api_usage.md`](docs/api_usage.md) |
+| Native LLM workflows | [`docs/llm.md`](docs/llm.md) |
+| Persian article workflow | [`docs/article_llm.md`](docs/article_llm.md) |
+| Graph-LM architecture | [`docs/graph_lm_v2.md`](docs/graph_lm_v2.md) |
+| Graph Reasoning Core | [`docs/graph_reasoning_core.md`](docs/graph_reasoning_core.md) |
+| Low-Data Training Engine | [`docs/low_data_training_engine.md`](docs/low_data_training_engine.md) |
+| Persian tokenizer | [`docs/persian_tokenizer.md`](docs/persian_tokenizer.md) |
+| Multi-relation graph | [`docs/multi_relation_persian_graph.md`](docs/multi_relation_persian_graph.md) |
+| MCP integration | [`docs/mcp.md`](docs/mcp.md) |
 
-| Benchmark | Common use | Preparation note |
-| --- | --- | --- |
-| [Hamshahri Corpus](https://en.wikipedia.org/wiki/Hamshahri_Corpus) | Persian news classification and information retrieval | Put article text in `text` and news category in `label`. |
-| [SnappFood Persian Sentiment](https://www.kaggle.com/datasets/soheiltehranipour/snappfood-persian-sentiment-analysis) | User review sentiment analysis | Put review text in `text` and positive/negative label in `label`. |
-| [SentiPers](https://www.researchgate.net/publication/322694676_SentiPers_A_Sentiment_Analysis_Corpus_for_Persian) | Persian sentiment analysis | If you have multiple polarity levels, convert them into stable text labels. |
-| [Pars-ABSA](https://arxiv.org/abs/1908.01815) | Persian aspect-based sentiment analysis | For this CLI, convert each sample to one general label, or place each aspect in a separate row. |
+## About the Developer
 
-Example run on your own dataset:
+RGN is created and maintained by the [RakhshAI](https://rakhshai.com/)
+team at [Aria Haman Mehr Parseh](https://ariahaman.ir/en/), an Iranian
+knowledge-based software company.
 
-```bash
-python -m rakhshai_graph_nlp.cli \
-  --dataset data/my_persian_dataset.csv \
-  --text-column text \
-  --label-column label \
-  --model gat \
-  --epochs 80 \
-  --hidden-dim 16 \
-  --learning-rate 0.005 \
-  --dropout 0.3 \
-  --seed 42 \
-  --device cuda \
-  --output-dir runs/my-persian-benchmark-gat
-```
+### Knowledge-Based Certification
 
-If CUDA is not available on your system, use `--device cpu`. For fair model
-comparison, keep split, seed, epoch count, and preprocessing fixed, and report
-macro-F1 in addition to accuracy, especially when classes are imbalanced.
+Rakhshai Graph-based NLP (RGN), developed by Aria Haman Mehr Parseh, has
+received knowledge-based certification in Iran.
+The company can be verified in the
+[official inquiry system](https://pub.daneshbonyan.ir/dashboard) by national ID.
 
-## Current Limitations
+| Field | Value |
+| --- | --- |
+| Company | Aria Haman Mehr Parseh |
+| National ID | `14009192677` |
+| Product | Rakhshai Graph-based NLP (RGN) |
+| Field | Persian NLP, graph-based text modeling, and AI infrastructure |
 
-- `build_text_graph` uses a dense matrix and may be memory-limited for very
-  large collections.
-- The Graph-LM path is currently experimental. The initial benchmark shows that
-  the pipeline works and that the graph has an early positive effect; it is not
-  a final-quality claim comparable to large LLMs.
-- Graph-LM text generation quality depends on corpus size and diversity, number
-  of epochs, tokenizer, sampling settings, and graph encoder/fusion selection.
-- Model output quality depends on data quality, tokenization, and training
-  settings.
-- `HateSpeechDetector` must be trained with real data, error analysis, and bias
-  control before being used in sensitive applications.
-- For stronger semantic graphs, use FarsNet, reliable lexical relations, or
-  high-quality Persian embeddings.
+## Licenses
 
-## Inspiration Sources
+- RGN source code: [MIT](LICENSE)
+- Haman Persian Article Graph-LLM 125M:
+  [Haman Model License 1.0](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m/blob/main/LICENSE)
+- Haman Persian Wikipedia Articles 186K: CC BY-SA 4.0; see the
+  [dataset card](https://huggingface.co/datasets/aria-haman/haman-fa-wikipedia-articles-186k)
 
-- **TextGCN:** Word-document graphs with PMI and TF-IDF for text
-  classification.
-- **GCN / GraphSAGE / GAT:** Graph neural network models for propagating and
-  aggregating information in graphs.
-- **TextRank:** Ranking sentences or words with PageRank over a similarity
-  graph.
-- **Causal Language Modeling:** Training a model to predict the next token and
-  generate text.
-- **Transformer Decoder:** The sequential language-model core that also uses
-  graph embeddings through graph-token fusion.
-- **Stanza:** Linguistic analysis tools for tokenization, lemmatization, and
-  dependency parsing.
+For technical questions and bug reports, use
+[GitHub Issues](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/issues).

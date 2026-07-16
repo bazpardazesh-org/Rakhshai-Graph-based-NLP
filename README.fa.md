@@ -1,219 +1,131 @@
 [English](README.md) | فارسی
 
-# رخشای Graph-based NLP نسخه ۲
+# Rakhshai Graph-based NLP (RGN)
 
 [![CI](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/actions/workflows/ci.yml)
 
-**Rakhshai Graph-based NLP V2**؛ از متن خام فارسی تا شبکه‌های عصبی گرافی و
-Persian Graph-LM.
+**از دادهٔ خام فارسی تا گراف، مدل و محصول قابل استقرار.**
 
-رخشای نخستین فریم‌ورک یکپارچه NLP گراف‌محور برای زبان فارسی است؛ چارچوبی کاربردی
-که متن خام فارسی را به گراف‌های قابل تحلیل و قابل یادگیری تبدیل می‌کند. این پروژه
-رابطهٔ واژه‌ها، اسناد و ساختارهای زبانی را در قالب گراف مدل‌سازی می‌کند و امکان
-آموزش و استفاده از مدل‌های شبکه عصبی گرافی مانند GCN، GraphSAGE و GAT را برای
-وظایفی مانند طبقه‌بندی متن، خلاصه‌سازی، توصیه‌گر محتوا و تحلیل‌های متنی فراهم می‌سازد.
+ما در [شرکت آریا هامان مهر پارسه](https://ariahaman.ir/)، `RGN` را به‌عنوان
+نخستین سکوی یکپارچهٔ `NLP` گراف‌محور برای زبان فارسی و زیرساخت متن‌باز خود برای
+ساخت گراف‌های چندرابطه‌ای و توسعهٔ مدل‌های زبانی گراف‌محور ایجاد کرده‌ایم.
+رونمایی عمومی `RGN` در ۴ سپتامبر ۲۰۲۵ انجام شد؛ یعنی ۱۰ ماه و ۱۱ روز پیش از
+رونمایی مدل هامان در ۱۵ ژوئیهٔ ۲۰۲۶ (۲۴ تیر ۱۴۰۵). `RGN` آماده‌سازی داده، ساخت
+گراف، آموزش، ارزیابی،
+استنتاج، مدیریت مدل، اتصال `MCP` و رابط کاربری راست‌به‌چپ را در یک مجموعهٔ
+یکپارچهٔ `Python`، `CLI` و `UI` ارائه می‌کند.
 
-رخشای برای کوتاه‌کردن مسیر ساخت pipelineهای Graph-based NLP در زبان فارسی طراحی شده است:
-از پیش‌پردازش متن فارسی و ساخت گراف‌های متنی، نحوی و معنایی تا آموزش، ارزیابی،
-پیش‌بینی روی متن جدید و ذخیره/بارگذاری مدل. هدف رخشای این است که پلی عملی میان
-زبان فارسی، مدل‌سازی گرافی و یادگیری عمیق گرافی ایجاد کند.
+با `RGN` می‌توانید مدل مقاله‌نویسی هامان را به کار بگیرید، یک `Graph-LM` فارسی
+بومی را روی دادهٔ خود آموزش دهید یا محصولاتی برای طبقه‌بندی، خلاصه‌سازی،
+توصیه‌گر محتوا و تحلیل معنایی گراف‌محور بسازید.
 
+## مدل آمادهٔ استفاده: `Haman Persian Article Graph-LLM 125M`
 
+در ادامهٔ این مسیر، در تاریخ ۲۴ تیر ۱۴۰۵، ما
+[`Haman Persian Article Graph-LLM 125M`](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m)
+را به‌عنوان نخستین خروجی پروژهٔ `NLP` شرکت آریا هامان مهر پارسه رونمایی
+کردیم. این مدل نخستین مدل ایرانی است که با معماری ایرانی توسعه داده شده است تا
+در ادامه بتوانیم چهارچوبی برای تمرکز روی زبان فارسی ایجاد کنیم.
+این مدل با دریافت موضوع، مخاطب، لحن و کنترل بخش‌ها، مقالهٔ فارسی ساختاریافته
+تولید می‌کند و یک
+`Transformer` از نوع
+`decoder-only` را با `GCN` واژگانی در سطح پیکره و
+`context-gated graph-token fusion` ترکیب می‌کند.
 
-## تأییدیه دانش‌بنیان
+| منبع | پیوند |
+| --- | --- |
+| کارت مدل و وزن‌ها | [صفحهٔ مدل](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m) |
+| دادهٔ آموزش | [دیتاست آموزش مدل هامان](https://huggingface.co/datasets/aria-haman/haman-fa-wikipedia-articles-186k) |
+| گردش‌کار قابل تکرار آموزش | [نوت‌بوک آموزش در گوگل کولب](https://colab.research.google.com/drive/1E50ISg1ANoW_rrFeRNBRcDn6C0cwfLyT?usp=sharing) |
+| هستهٔ اجرا و کد منبع | [مخزن کد Rakhshai Graph-based NLP (RGN)](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP) |
 
-محصول **کتابخانه ارائه خدمات NLP مبتنی بر گراف (Rakhshai-Graph-based-NLP)** متعلق به شرکت **آریا هامان مهر پارسه** موفق به دریافت تأییدیه دانش‌بنیان شده است.
+مدل در مخزن مستقل `Hugging Face` نگهداری می‌شود تا کاربران وزن‌های نسخه‌بندی‌شده
+را بدون افزودن چک‌پوینت‌های حجیم به مخزن کد دریافت کنند. فهرست فایل‌ها،
+نمونه‌های تولید، نکات استقرار و مجوز مدل در کارت مدل آمده است.
 
-برای استعلام وضعیت دانش‌بنیان شرکت، می‌توانید به سامانه رسمی استعلام شرکت‌های دانش‌بنیان مراجعه کرده و **شناسه ملی شرکت: `14009192677`** را جستجو کنید.
+### دریافت و اجرای مدل هامان
 
-- **لینک استعلام:** [سامانه استعلام شرکت‌های دانش‌بنیان](https://pub.daneshbonyan.ir/dashboard)
-- **شناسه ملی شرکت:** `14009192677`
-
-> نام شرکت: آریا هامان مهر پارسه
-> شناسه ملی: `14009192677`
-> نام محصول: کتابخانه ارائه خدمات NLP مبتنی بر گراف (Rakhshai-Graph-based-NLP)
-> حوزه فعالیت: پردازش زبان طبیعی فارسی، مدل‌سازی گرافی متن و هوش مصنوعی
-
-## نسخهٔ ۲ Rakhshai-Graph-based-NLP
-
-در نسخهٔ ۲، رخشای فقط یک ابزار طبقه‌بندی گرافی نیست؛ یک مسیر واقعی
-**Persian Graph-LM** هم دارد. در این مسیر، متن فارسی به توکن عددی تبدیل
-می‌شود، از همان corpus گراف هم‌رخدادی واژگان ساخته می‌شود، GNN روی گراف
-embedding گرافی تولید می‌کند، و سپس embedding توکن و embedding گراف با
-**Gated Graph-Token Fusion** درون یک Transformer decoder مدرن (موقعیت‌های RoPE،
-شبکهٔ پیش‌خور SwiGLU، نرمال‌سازی RMSNorm به‌صورت pre-norm، و KV cache هنگام
-تولید) ترکیب می‌شوند. خروجی این مدل `batch × sequence × vocab_size` است و برای
-پیش‌بینی توکن بعدی و تولید متن فارسی طراحی شده است.
-
-آزمایش اولیه روی یک corpus فارسی توسعه‌یافته perplexity پایین‌تری برای مسیر
-`Graph-LM / GCN + gated` نسبت به baseline بدون گراف گزارش کرده بود، اما آن
-نتیجه پیش از دو اصلاح پیاده‌سازی (مقداردهی اولیه embeddingها و محاسبه
-perplexity فقط از loss توکن بعدی) گرفته شده بود. پس از این اصلاح‌ها، ترکیب
-گراف با **دروازه صفر-شروع (zero-init gating)** بازطراحی شد: مدل آموزش‌ندیده
-دقیقاً معادل baseline بدون گراف است و اطلاعات گراف فقط از طریق یک دروازه
-آموزش‌پذیر `tanh(alpha)` و فقط وقتی مفید باشد وارد می‌شود. با این طراحی، مسیر
-گرافی روی corpus کوچک ارزیابی به سطح baseline می‌رسد (هنوز برتری قابل
-اندازه‌گیری ندارد، ولی ضرری هم نمی‌زند). این یک مشاهده موقت و محدود به داده
-کوچک است، نه قضاوت نهایی: Graph-LM برای بهره‌گیری از ساختارهای غنی و روابط
-گسترده طراحی شده و ارزیابی منصفانه آن ظرفیت، نیازمند آموزش و آزمایش روی
-corpusهای فارسی بسیار بزرگ‌تر است. corpus کوچک همراه پروژه فقط برای smoke
-test و بررسی سلامت پیاده‌سازی مناسب است.
-
-
-این کتابخانه متن‌باز توسط تیم توسعه [RakhshAI](https://rakhshai.com/) وابسته به
-شرکت آریا هامان مهر پارسه ایجاد و توسعه داده شده و تحت مجوز MIT منتشر می‌شود.
-
-## ویژگی‌های برجسته به زبان ساده
-
-- **نخستین فریم‌ورک یکپارچه NLP گراف‌محور برای زبان فارسی:**
-  رخشای یک مسیر کامل از متن خام فارسی تا ساخت گراف، آموزش مدل، ارزیابی،
-  پیش‌بینی و ذخیره/بارگذاری pipeline فراهم می‌کند.
-- **پیاده‌سازی اختصاصی GCN، GraphSAGE و GAT برای NLP گراف‌محور فارسی:**
-  رخشای سه مدل مهم شبکه عصبی گرافی، یعنی GCN، GraphSAGE و GAT را در قالب
-  یک فریم‌ورک اجرایی و یکپارچه برای یادگیری روی گراف‌های ساخته‌شده از متن فارسی
-  ارائه می‌کند؛ با امکان استفاده در آموزش، ارزیابی، پیش‌بینی و ذخیره/بارگذاری pipeline.
-- **طبقه‌بندی متن آماده استفاده:** با `TextGraphClassifier` می‌توانید متن و
-  برچسب بدهید، مدل آموزش دهید، ارزیابی کنید و روی متن جدید خروجی بگیرید.
-- **ذخیره کامل مدل و pipeline:** فقط وزن مدل ذخیره نمی‌شود؛ واژگان، نگاشت
-  برچسب‌ها و تنظیمات graph هم همراه مدل ذخیره می‌شوند.
-- **پشتیبانی از GPU برای مدل‌های گرافی:** اگر CUDA و کارت NVIDIA داشته باشید،
-  مسیرهای PyTorch Geometric می‌توانند روی GPU اجرا شوند.
-- **چند نوع گراف برای متن فارسی:** هم‌رخدادی واژه‌ها، گراف واژه-سند،
-  شباهت اسناد، وابستگی نحوی و گراف معنایی با پشتیبانی از FarsNet.
-- **چند وظیفه آماده:** طبقه‌بندی، خلاصه‌سازی، توصیه‌گر محتوا، تشخیص
-  نفرت‌پراکنی و تحلیل شبکه.
-- **رابط خط فرمان:** با `rgnn-cli` می‌توانید بدون نوشتن کد زیاد، روی فایل
-  CSV/TSV/JSONL آموزش و ارزیابی انجام دهید.
-- **Graph-LM فارسی با معماری اختصاصی Rakhshai:** مسیر `lm-train` یک tokenizer
-  فارسی، graph builder، GNN encoder، gated graph-token fusion، Transformer
-  causal LM، trainer مخصوص LM، perplexity، checkpoint کامل شامل artifact گراف
-  sparse و تولید متن را کنار هم قرار می‌دهد.
-- **Transformer decoder مدرن:** هستهٔ زبانی از موقعیت‌های چرخشی (RoPE)، شبکهٔ
-  پیش‌خور SwiGLU، نرمال‌سازی RMSNorm با residualهای pre-norm، و KV cache هنگام
-  تولید استفاده می‌کند. هر کدام را می‌توان به نسخهٔ کلاسیک برگرداند
-  (`position_encoding`، `ffn_type`، `norm_type` روی `GraphLMConfig`).
-- **توکن‌سازی فارسی‌آگاه:** علائم سجاوندی توکن مستقل می‌شوند (علائم فارسی دیگر به
-  کلمه نمی‌چسبند و علائم ASCII حذف نمی‌شوند)، جداکننده‌های اعشار/هزارگان فارسی
-  نرمال می‌شوند، فولد کردن همزه و هندل کردن اضافه قابل‌تنظیم‌اند، و `unigram` یک
-  توکنایزر Unigram LM واقعی و پیش‌فرض عملیاتی است. یک توکن `<mask>` اختصاصی هدف
-  آموزشی masked-token را پشتیبانی می‌کند.
-- **Graph Reasoning Core برای گراف چندرابطه‌ای:** گراف برای هر رابطه یال موازی
-  نگه می‌دارد (یک یال می‌تواند هم‌زمان چند رابطه داشته باشد)، و encoder
-  relation idها را با حالت‌های `bias`، `embedding` (پیش‌فرض) یا `rgcn` مصرف می‌کند،
-  از `RGCN` برای message passing رابطه‌محور استفاده می‌کند، به nodeهای غیرتوکنی
-  embedding نوع-نود می‌دهد، و به صورت اختیاری node importance و subgraph pooling دارد.
-- **Adaptive Graph-Text Fusion:** مدل می‌تواند ترکیب متن و گراف را در سطح
-  `token`، `sentence` و `subgraph` کنترل کند. شدت استفاده از گراف با
-  scale/dropout تنظیم می‌شود و آمار gateها در `metrics.json` ذخیره می‌شود تا
-  معلوم شود مدل واقعاً کجا از گراف کمک گرفته است.
-- **Low-Data Training Engine:** مسیر Graph-LM به صورت پیش‌فرض با
-  augmentation متنی، dropout گره/یال، subgraph sampling، contrastive learning،
-  curriculum learning، early stopping و گزارش overfitting اجرا می‌شود تا در
-  corpusهای کوچک کمتر حفظ کند و بهتر generalize کند.
-- **Graph Memory برای زمان تولید:** checkpointهای گرافی اکنون حافظهٔ
-  گرافی جداگانه ذخیره می‌کنند. دستور `generate` به صورت پیش‌فرض از prompt
-  nodeها و subgraphهای مرتبط را retrieve می‌کند و همان زیرگراف محدود را به
-  fusion می‌دهد تا مدل به جای کل گراف، حافظهٔ مرتبط با prompt را مصرف کند.
-- **قابلیت ساخت LLMهای بومی:** رخشای می‌تواند checkpointهای LLM فارسی
-  را از corpusهای متعلق به خود پروژه بسازد، نه اینکه فقط wrapper یک مدل
-  pretrained بیرونی باشد. این workflowها زیر `rakhshai_graph_nlp.llm` قرار
-  می‌گیرند و از `rakhshai_graph_nlp.lm` به‌عنوان موتور سطح پایین Graph-LM
-  استفاده می‌کنند. گزینهٔ فعلی، Native Persian Article LLM است: دستورهای
-  `article-prepare`، `article-audit`، `article-train`، `article-ablation` و
-  `article-generate` دیتاست مقاله را آماده می‌کنند، کیفیت داده و tokenizer را
-  می‌سنجند، checkpoint مقاله‌محور می‌سازند، ablation گراف اجرا می‌کنند و خروجی
-  ساختاریافته Markdown یا JSON می‌دهند. راهنما در `docs/llm.md` و
-  `docs/article_llm.md` است.
-- **Baseline بدون گراف برای مقایسه منصفانه:** با `--graph-encoder none` می‌توانید
-  همان Transformer causal LM را بدون GNN و fusion آموزش دهید و اثر واقعی گراف را
-  با validation loss و perplexity بسنجید.
-- **تولید متن قابل کنترل:** دستور `generate` از گزینه‌هایی مثل `--temperature`،
-  `--top-k`، `--min-new-tokens` و `--repetition-penalty` پشتیبانی می‌کند.
-
-## پشتیبانی از MCP در Rakhshai Graph-based NLP
-
-پشتیبانی از MCP به‌عنوان یک قابلیت تکمیلی به پروژه اضافه شده تا اتصال آن به
-ابزارها، سرویس‌ها و مدل‌های بیرونی ساده‌تر شود. این قابلیت به‌ویژه در ساخت
-Agentها کاربرد دارد و امکان تعامل ساخت‌یافته‌تر، توسعه‌پذیرتر و قابل‌کنترل‌تر
-با اجزای مختلف پروژه را فراهم می‌کند.
-
-### قابلیت‌هایی که از طریق MCP قابل استفاده هستند
-
-- تحلیل متن فارسی و استخراج مفاهیم، کلیدواژه‌ها و نشانه‌های مهم
-- ساخت گراف دانشی از متن فارسی با node، edge، relation و weight
-- خلاصه‌سازی گراف‌محور بر اساس گره‌ها و رابطه‌های مهم
-- استفاده از Graph Memory برای بازیابی شواهد مرتبط
-- تولید پاسخ یا تحلیل با کمک Graph-LM و شواهد گرافی
-- توضیح‌پذیر کردن خروجی با نمایش گره‌ها، رابطه‌ها و مسیرهای استدلالی
-- دسترسی کنترل‌شده به مدل‌ها، گراف‌ها، اجراها، گزارش‌ها و مستندات پروژه
-- استفاده در Agentها، IDEها، چت‌بات‌ها و workflowهای هوشمند
-
-### گزارش تست MCP با مدل OpenAI
-
-راهنمای اصلی MCP در این فایل قرار دارد:
-
-[`docs/mcp.md`](docs/mcp.md)
-
-گزارش کامل تست در این فایل قرار دارد:
-
-[`docs/mcp_single_poem_evaluation.md`](docs/mcp_single_poem_evaluation.md)
-
-شعر فارسی برای این تست MCP انتخاب شده، چون فهم آن برای مدل‌های هوش مصنوعی از
-متن معمولی فارسی سخت‌تر است؛ مدل باید نمادها، معنای ضمنی و رابطه میان تصویرهایی
-مثل آینه، سایه، نام، چراغ، رود، تشنگی، خانه و کلید را تحلیل کند.
-
-**نکته طلایی تست:**
-
-**در این تست تک‌نمونه‌ای، Rakhshai Graph-based NLP MCP باعث شد کیفیت تحلیل شعر
-فارسی مدل حدود ۱۹٪ بهتر شود؛ همچنین پاسخ مدل از نظر استفاده از شواهد گرافی
-استخراج‌شده برای تحلیل بهتر متن فارسی توسط Rakhshai Graph-based NLP MCP، چهار
-برابر قوی‌تر از حالت direct عمل کرد.**
-
-در این تست از مدل `gpt-5.4` از OpenAI استفاده شده است.
-
-### تنظیم API برای اجرای تست
-
-برای اجرای تست، کاربر باید یک API key معتبر از OpenAI داشته باشد. کلید را در
-فایل `.env.local` در ریشه پروژه قرار دهید:
-
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
-این فایل نباید داخل git commit شود و برای همین در `.gitignore` قرار دارد.
-
-وابستگی اختیاری OpenAI را هم نصب کنید:
+`RGN` را نصب کنید، نسخهٔ منتشرشدهٔ مدل را بگیرید و مقاله بسازید:
 
 ```bash
-python -m pip install -e ".[openai]"
+python -m pip install -e .
+python -m pip install huggingface_hub
+python -c 'from huggingface_hub import snapshot_download; snapshot_download(repo_id="aria-haman/haman-fa-article-graph-llm-125m", local_dir="models/haman-fa-article-graph-llm-125m")'
+
+rgnn-cli article-generate \
+  --model models/haman-fa-article-graph-llm-125m \
+  --topic "آینده هوش مصنوعی در آموزش فارسی" \
+  --audience "دانشجویان" \
+  --tone "تحلیلی" \
+  --sections 4 \
+  --max-new-tokens 700 \
+  --output-format markdown \
+  --output-path haman-article.md
 ```
 
-### اجرای مجدد تست
+> محصول ما، `Rakhshai Graph-based NLP (RGN)`، تأییدیهٔ
+> دانش‌بنیان را دریافت کرده است. جزئیات استعلام رسمی در پایین صفحه آمده است.
 
-بعد از تنظیم API key، تست با دستور زیر قابل اجراست:
+## سکوی محصول `RGN`
 
-```bash
-python scripts/evaluate_openai_mcp_persian.py \
-  --model gpt-5.4 \
-  --temperature 0 \
-  --top-p 1 \
-  --seed 42 \
-  --max-output-tokens 3000 \
-  --direct-manual-scores 5,5,4,3,4,0 \
-  --mcp-manual-scores 5,5,5,5,5,0 \
-  --report-path docs/mcp_single_poem_evaluation.md
-```
+`RGN` چهار لایهٔ به‌هم‌پیوسته را در اختیار تیم‌های محصول قرار می‌دهد. هر لایه
+مستقل قابل استفاده است و در کنار هم یک گردش‌کار کامل هوش مصنوعی فارسی می‌سازند.
 
-## امضای فنی Graph-LM رخشای
+| لایه | قابلیت ارائه‌شده |
+| --- | --- |
+| پردازش فارسی | نرمال‌سازی، توکن‌سازی، تحلیل زبانی و ویژگی‌های قابل استفادهٔ مجدد |
+| هوشمندی گرافی | گراف‌های متنی، نحوی، معنایی، سندی و چندرابطه‌ای |
+| موتور بومی مدل | `rakhshai_graph_nlp.lm` برای توکن‌ساز، `Graph-LM`، آموزش، ارزیابی، حافظهٔ گراف و استنتاج |
+| گردش‌کارهای محصول | `rakhshai_graph_nlp.llm` برای محصولات بومی کاربردمحور، با شروع از تولید مقالهٔ ساختاریافتهٔ فارسی |
 
-معماری جدید Graph-LM در رخشای این مسیر را پیاده‌سازی می‌کند:
+گردش‌کارهای سطح بالای `llm` بر موتور سطح پایین `lm` ساخته می‌شوند و جایگزین آن
+نیستند. این جداسازی، هستهٔ مدل را برای کاربردهای مختلف قابل استفاده نگه می‌دارد
+و هم‌زمان فرمان‌ها و خروجی‌های ساختاریافته و پایدار در اختیار تیم محصول می‌گذارد.
+
+ما این سکوی متن‌باز را در تیم [RakhshAI](https://rakhshai.com/) شرکت آریا هامان
+مهر پارسه توسعه می‌دهیم و کد آن را تحت مجوز MIT منتشر می‌کنیم.
+
+## قابلیت‌های محصول
+
+- **سکوی یکپارچهٔ `NLP` گراف‌محور فارسی:** مسیر متن خام تا پیش‌پردازش، ساخت
+  گراف، آموزش، ارزیابی، استنتاج و ذخیرهٔ خط تولید را در یک محصول ارائه می‌کنیم.
+- **مدل آمادهٔ مقاله‌نویسی فارسی:** مدل هامان را همراه با وزن‌ها، دیتاست،
+  گردش‌کار آموزش و رابط تولید ساختاریافته در اختیار کاربران قرار داده‌ایم.
+- **خط تولید بومی `LLM`:** در لایهٔ سطح بالای `rakhshai_graph_nlp.llm` می‌توانید
+  داده را آماده و ممیزی کنید، چک‌پوینت را آموزش دهید، آزمون تفکیکی اجرا کنید و
+  خروجی `Markdown` یا `JSON` بگیرید.
+- **موتور قابل استفادهٔ مجدد `Graph-LM`:** توکن‌ساز فارسی‌آگاه، رمزگشای زبانی
+  مدرن، رمزگذارهای `GCN`، `GraphSAGE`، `GAT` و `RGCN`، ترکیب تطبیقی گراف و
+  متن، حافظهٔ گراف، ارزیابی و چک‌پوینت کامل در لایهٔ `lm` قرار دارند.
+- **ابزارهای هوشمندی گرافی:** گراف‌های هم‌رخدادی، واژه-سند، شباهت اسناد،
+  وابستگی نحوی، معنایی و چندرابطه‌ای می‌سازیم.
+- **اجزای آمادهٔ کاربرد:** طبقه‌بندی، خلاصه‌سازی، توصیه‌گر محتوا، تشخیص
+  نفرت‌پراکنی، تحلیل معنایی و تحلیل شبکه پشتیبانی می‌شوند.
+- **رابط‌های متنوع محصول:** `API` پایدار پایتون، `rgnn-cli`، رابط وب
+  راست‌به‌چپ و اتصال `MCP` برای عامل‌ها و سامانه‌های خودکار در دسترس‌اند.
+- **کنترل‌های عملیاتی:** مسیرهای پشتیبانی‌شدهٔ `CPU` و `GPU`، مقایسهٔ حالت
+  گرافی و بدون گراف، ذخیرهٔ کامل خروجی‌ها و کنترل تنظیمات تولید فراهم‌اند.
+
+## اتصال MCP
+
+ما قابلیت‌های تحلیل متن فارسی، ساخت گراف، خلاصه‌سازی گراف‌محور، بازیابی از
+حافظهٔ گراف، تولید با `Graph-LM`، توضیح‌پذیری و دسترسی کنترل‌شده به منابع پروژه
+را از طریق `MCP` ارائه می‌کنیم. تیم‌های محصول می‌توانند این ابزارها را به عامل،
+`IDE`، چت‌بات و گردش‌کارهای خودکار متصل کنند.
+
+- [راهنمای اتصال و استقرار MCP](docs/mcp.md)
+- [گزارش منتشرشدهٔ ارزیابی MCP](docs/mcp_single_poem_evaluation.md)
+
+## معماری `Graph-LM` در `RGN`
+
+هستهٔ `Graph-LM` در `RGN` این مسیر را پیاده‌سازی می‌کند:
 
 ```text
 Persian Text
 → PersianTokenizer
 → LM Dataset
 → Multi-Relation Persian Graph
-→ Rakhshai Graph Encoder (GCN / GraphSAGE / GAT / RGCN)
+→ RGN Graph Encoder (GCN / GraphSAGE / GAT / RGCN)
 → Adaptive Graph-Text Fusion
 → Low-Data Training Engine
 → Prompt-aware Graph Memory
@@ -221,10 +133,10 @@ Persian Text
 → Text Generation
 ```
 
-امضای فنی پروژه در این بخش:
+اجزای اصلی این هسته:
 
 ```text
-Rakhshai Graph Encoder
+RGN Graph Encoder
 +
 Adaptive Graph-Text Fusion
 +
@@ -233,81 +145,35 @@ Low-Data Training Engine
 Persian Causal LM
 ```
 
-به زبان ساده، رخشای می‌تواند به جای یک مدل زبانی صرفاً دنباله‌ای، از رابطهٔ
-گرافی واژه‌ها هم استفاده کند. مدل هنگام ساخت embedding نهایی هر توکن یاد
-می‌گیرد چقدر به embedding متنی و چقدر به embedding گرافی اعتماد کند؛ یعنی
-ترکیب به صورت ثابت و دستی نیست، بلکه با gate قابل یادگیری انجام می‌شود.
-این gate می‌تواند در چند سطح فعال شود: سطح توکن برای هر جایگاه دنباله، سطح
-جمله برای کنترل شدت کلی گراف در context، و سطح subgraph برای تزریق خلاصه‌ای از
-nodeهای غیرتوکنی مانند سند یا topic.
+به زبان ساده، `RGN` می‌تواند به جای یک مدل زبانی صرفاً دنباله‌ای، از رابطهٔ
+گرافی واژه‌ها هم استفاده کند. مدل هنگام ساخت `embedding` نهایی هر توکن یاد
+می‌گیرد چقدر به بازنمایی متنی و چقدر به بازنمایی گرافی اعتماد کند؛ یعنی ترکیب
+به صورت ثابت و دستی نیست، بلکه با دروازهٔ قابل یادگیری انجام می‌شود. این
+دروازه می‌تواند در سطح توکن، جمله و زیرگراف فعال شود.
 
-> **نکتهٔ سازگاری checkpoint.** decoder مدرن شد (RoPE، SwiGLU، RMSNorm، pre-norm)
-> و توکنایزر `unigram` حالا یک Unigram LM واقعی و پیش‌فرض عملیاتی است، ضمن اینکه
-> پیش‌فرض `ezafe_mode` اکنون `marker` است. چند پیش‌فرض برای تولید بهتر فارسی عوض
-> شد: توکنایزر (`unigram`)، حالت رابطهٔ گراف (`embedding`)، انتخاب best-checkpoint
-> (`--checkpoint-metric next_token`)، و مجموعهٔ رابطه‌های پیش‌فرض که حالا شامل
-> `dependency` است. توکنایزر یک توکن واقعی `<mask>` هم اضافه می‌کند (اندازهٔ vocab
-> یک واحد بزرگ‌تر می‌شود، `tokenizer_version = 3`)، گراف چندرابطه‌ای **یال موازی
-> به‌ازای هر رابطه** نگه می‌دارد (یک یال می‌تواند چند رابطه را هم‌زمان حمل کند)، و
-> nodeهای غیرتوکنی embedding نوع-نود می‌گیرند. checkpointهای ذخیره‌شده پیش از این
-> تغییرات همچنان لود می‌شوند (`from_pretrained` با `strict=False`) ولی وزن‌های
-> Transformerشان با چینش جدید نمی‌خواند، پس برای استفاده از معماری جدید باید از نو
-> آموزش بدهید. توکنایزرهای بدون `<mask>` با نگاشت آن به `<unk>` لود می‌شوند؛
-> configهای توکنایزرِ ذخیره‌شده پیش از وجود `ezafe_mode` هنگام لود رفتار قدیمی
-> `collapse` را حفظ می‌کنند.
+> **سازگاری چک‌پوینت:** چک‌پوینت‌های قدیمی در حالت سازگاری بارگذاری می‌شوند؛
+> برای استفاده از چینش فعلی رمزگشا و توکن‌ساز باید آموزش را تکرار کنید. جزئیات
+> مهاجرت در [راهنمای `Graph-LM V2`](docs/graph_lm_v2.md) آمده است.
 
-## نتیجهٔ smoke جدید Graph-LM
+## مسیر مناسب محصول خود را انتخاب کنید
 
-پس از پاک‌سازی artifactهای قدیمی `runs`، مسیر Graph-LM در تاریخ ۲۰۲۶-۰۶-۱۴
-روی `data/expanded_persian_lm.txt` دوباره بررسی شد. تنظیمات این smoke runها:
-`seed=0`، `epochs=3`، `d_model=64`، `n_layers=1`، `block_size=64` و
-`device=cpu`. این اجراها برای بررسی سلامت پیاده‌سازی هستند، نه ادعای کیفیت
-نهایی مدل.
+| هدف | مسیر پیشنهادی |
+| --- | --- |
+| تولید فوری مقالهٔ ساختاریافتهٔ فارسی | استفاده از [مدل منتشرشدهٔ هامان](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m) |
+| ساخت یک `LLM` بومی برای کاربردی دیگر | شروع از [گردش‌کارهای سطح بالای `llm`](docs/llm.md) |
+| آموزش یا توسعهٔ هستهٔ قابل استفادهٔ مجدد | استفاده از [موتور سطح پایین `lm`](docs/graph_lm_v2.md) |
+| ساخت محصولات `NLP` گراف‌محور | استفاده از سازنده‌های گراف، مدل‌های `GNN`، وظایف آماده، `API` پایتون یا `CLI` همین مخزن |
 
-| مدل | best validation loss | best perplexity | مسیر خروجی |
-| --- | ---: | ---: | --- |
-| `Baseline / no graph` | 6.023 | 412.786 | `runs/graph-lm-smoke/baseline-s0/metrics.json` |
-| `Graph-LM / GCN + gated` | 5.985 | 397.509 | `runs/graph-lm-smoke/graph-gcn-s0/metrics.json` |
+## آموزش `Graph-LM` اختصاصی
 
-اعداد قبلی این بخش به artifactهای قدیمی مربوط بودند که اکنون از `runs` حذف
-شده‌اند. خلاصهٔ نتایج جدید و گزارش unit test در `runs/latest/RESULTS.md`
-ذخیره شده است.
-
-**محدودهٔ این benchmark.** این اعداد مشاهده‌ای موقت روی داده کوچک هستند. از
-این corpus نباید هیچ نتیجه‌ای دربارهٔ ارزش ترکیب گراف برای مدل‌سازی زبان
-فارسی گرفت: این داده برای smoke test، بررسی سلامت پیاده‌سازی و مقایسه سریع
-تنظیمات است. Graph-LM برای بهره‌گیری از ساختارهای غنی و روابط واژگانی گسترده
-طراحی شده و قضاوت منصفانه دربارهٔ آن ظرفیت، نیازمند آموزش و ارزیابی روی
-corpusهای فارسی به‌مراتب بزرگ‌تر است.
-
-**فلسفهٔ طراحی.** هدف رخشای توسعه و ارزیابی یک معماری مدل زبانی بومی و مستقل
-است. بنابراین فعلاً از مدل‌های زبانی خارجی، distillation از مدل‌های دیگر،
-embeddingهای از پیش آموزش‌دیده، یا دادهٔ مصنوعی تولیدشده توسط LLMها استفاده
-نمی‌شود تا توانایی‌ها و محدودیت‌های خود معماری Graph-LM به‌صورت شفاف و بدون
-اتکا به دانش مدل‌های دیگر سنجیده شود.
-
-نمونهٔ خروجی تولید متن با corpus کوچک‌تر از مدل‌های بزرگ:
-
-```text
-prompt: امروز در تهران
-output: امروز در تهران باران آرامی بارید و خیابان‌ها خلوت‌تر از روزهای گذشته بودند ...
-```
-
-برای نتیجهٔ علمی‌تر، پیشنهاد می‌شود همین آزمایش با چند seed، چند graph encoder
-مثل `GCN`، `GAT`، `GraphSAGE` و `RGCN`، چند حالت relation-aware مثل
-`bias` و `embedding`، و چند روش fusion مثل `gated` و `additive` تکرار شود.
-
-## نمونه دیتاست آماده برای تست Graph-LM
-
-یک نمونه آماده از Persian Wikipedia برای تست سریع Graph-LM در مسیر زیر قرار دارد:
+برای شروع سریع محلی، یک نمونه از ویکی‌پدیای فارسی در مسیر زیر قرار دارد:
 
 ```text
 data/wiki_fa_50k.txt
 ```
 
-اگر نمی‌خواهید دیتاست را جداگانه دانلود کنید، می‌توانید مستقیم با همین فایل
-آموزش و تولید متن را تست بگیرید. برای ساخت دوباره همین فایل، یا بزرگ‌تر کردن
-نمونه، از اسکریپت زیر استفاده کنید:
+می‌توانید مستقیم با همین فایل آموزش و تولید متن را اجرا کنید. برای ساخت دوبارهٔ
+فایل یا تهیهٔ نمونهٔ بزرگ‌تر، از اسکریپت زیر استفاده کنید:
 
 ```bash
 python scripts/download_fa_wiki_sample.py \
@@ -370,14 +236,20 @@ rgnn-cli lm-run-report --run-dir runs/fa-pretrain
 این مسیر از pretrained LM بیرونی، embedding آماده، distillation، داده synthetic
 ساخته‌شده با LLM یا judge بیرونی استفاده نمی‌کند.
 
-### قابلیت ساخت LLM بومی: مقاله‌نویسی فارسی
+## گردش‌کار بومی مدل زبانی مقاله‌نویسی فارسی
 
-لایهٔ LLM در رخشای برای ساخت checkpointهای بومی و task-specific از corpusهای
-فارسی محلی است. گزینهٔ فعلی این لایه، Native Persian Article LLM با namespace
-پایتونی `rakhshai_graph_nlp.llm.article` است. این بخش جایگزین موتور Graph-LM
-نیست؛ بلکه tokenizer، graph builder، model، trainer و graph memory موجود در
-`rakhshai_graph_nlp.lm` را در یک pipeline مقاله‌محور برای آموزش و تولید
-ساختاریافته بسته‌بندی می‌کند.
+این همان گردش‌کار محصولی است که
+[مدل هامان](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m)
+با آن ساخته شده است. می‌توانید چک‌پوینت آماده را همراه با
+[دیتاست ۱۸۶ هزار مقاله‌ای](https://huggingface.co/datasets/aria-haman/haman-fa-wikipedia-articles-186k)
+و [نوت‌بوک تمیز کولب](https://colab.research.google.com/drive/1E50ISg1ANoW_rrFeRNBRcDn6C0cwfLyT?usp=sharing)
+استفاده کنید یا با فرمان‌های زیر، چک‌پوینت بومی و کاربردمحور خود را روی پیکرهٔ
+فارسی اختصاصی آموزش دهید.
+
+این گردش‌کار از طریق `rakhshai_graph_nlp.llm.article` ارائه می‌شود و توکن‌ساز،
+سازندهٔ گراف، مدل، مربی و حافظهٔ گراف موتور سطح پایین
+`rakhshai_graph_nlp.lm` را در یک خط تولید مقاله‌محور بسته‌بندی می‌کند؛ موتور
+قابل استفادهٔ مجدد `Graph-LM` همچنان مستقل باقی می‌ماند.
 
 جریان فنی:
 
@@ -413,7 +285,7 @@ rgnn-cli lm-run-report --run-dir runs/fa-pretrain
 4. با `article-train` آموزش را اجرا کنید. نمونهٔ زیر از CUDA، AMP،
    `context_gated` graph fusion، tokenizer نوع Unigram و graph cache قابل‌استفاده
    مجدد استفاده می‌کند. برای ادامهٔ اجرای قطع‌شده، از
-   `--resume-from runs/article-llm-fa/training_state.pt` استفاده کنید.
+   `--resume-from runs/article-llm-fa` استفاده کنید.
 5. بعد از آموزش، فایل‌های `metrics.json`، `article_llm_config.json`،
    `config.json`، `generation_config.json`، `tokenizer.json`، `model.pt`،
    `corpus.txt` و در اجراهای گراف‌دار `graph.pt` و `graph_memory.pt` را بررسی
@@ -824,7 +696,7 @@ Optional packages — install only the ones you need:
 آموزش می‌دهید و در پایان با همان مدل و **حافظهٔ گرافی** متن فارسی تولید می‌کنید —
 همه در چند کلیک.
 
-## شروع سریع
+## شروع سریع طبقه‌بندی گرافی
 
 ```python
 from rakhshai_graph_nlp import TextGraphClassifier
@@ -851,10 +723,12 @@ print(loaded.predict(["مجلس درباره قانون جدید بحث کرد"]
 
 ## رابط خط فرمان
 
-ابزار `rgnn-cli` دو مسیر اصلی دارد: مسیر قدیمی و پایدار طبقه‌بندی متن فارسی
-مبتنی بر گراف، و مسیر جدید Graph-LM برای آموزش مدل زبانی فارسی گراف‌محور.
-اگر subcommand ندهید، همان مسیر طبقه‌بندی اجرا می‌شود. برای LM از
-`lm-train` و `generate` استفاده کنید.
+ابزار `rgnn-cli` سه مسیر دارد: ابزارهای کلاسیک `NLP` گراف‌محور فارسی از طریق
+فرمان پیش‌فرض طبقه‌بندی؛ موتور سطح پایین `lm` با فرمان‌هایی مانند
+`lm-build-corpus`، `lm-pretrain`، `lm-train`، `lm-eval` و `generate`؛ و
+گردش‌کارهای محصولی سطح بالای `llm` با `article-prepare`، `article-audit`،
+`article-train`، `article-ablation` و `article-generate`. اگر زیرفرمان ندهید،
+مسیر کلاسیک طبقه‌بندی اجرا می‌شود.
 
 آموزش Graph-LM:
 
@@ -1396,172 +1270,80 @@ docs/                # مستندات MkDocs
 tests/               # تست‌های واحد و end-to-end
 ```
 
-## benchmark اولیه Graph-LM
+## اعتبارسنجی و کیفیت
 
-برای بررسی مسیر Graph-LM، یک corpus فارسی توسعه‌یافته در `data/expanded_persian_lm.txt`
-استفاده شد. این corpus شامل جمله‌هایی درباره شهر، سیاست، آموزش، اقتصاد، ورزش،
-هنر و خود معماری Graph-LM است تا رابطه‌های واژگانی مثل `مجلس/قانون`،
-`تهران/باران`، `مدرسه/دانش‌آموز` و `مدل/گراف/embedding` در گراف هم‌رخدادی
-قابل مشاهده باشند.
-
-آخرین مقایسهٔ smoke پس از پاک‌سازی artifactهای قدیمی در تاریخ ۲۰۲۶-۰۶-۱۴:
-
-| مدل | best validation loss | best perplexity | مسیر خروجی |
-| --- | ---: | ---: | --- |
-| `Baseline / no graph` | 6.023 | 412.786 | `runs/graph-lm-smoke/baseline-s0/metrics.json` |
-| `Graph-LM / GCN + gated` | 5.985 | 397.509 | `runs/graph-lm-smoke/graph-gcn-s0/metrics.json` |
-
-این benchmark یک smoke test برای پیاده‌سازی است، نه ارزیابی کیفیت مدل؛ بخش
-«محدودهٔ این benchmark» در بالای همین سند را ببینید.
-
-نمونه تولید متن با مدل demo:
-
-```text
-prompt: امروز در تهران
-output: امروز در تهران باران آرامی بارید و خیابان‌ها خلوت‌تر از روزهای گذشته بودند ...
-```
-
-این benchmark کوچک برای اثبات مسیر و مقایسهٔ اولیه است.
-
-## benchmarkهای قابل تکرار
-
-یک benchmark کوچک فارسی در `benchmarks/persian_text_classification.csv` وجود
-دارد تا مسیر کامل ساخت گراف، آموزش، ارزیابی و ذخیره گزارش سریع بررسی شود.
-این دیتاست ۲۴ متن خبری کوتاه در سه کلاس `politics`، `sports` و `art` دارد؛
-برای smoke test و مقایسه تنظیمات مناسب است، نه برای ادعای کیفیت نهایی مدل.
-
-آخرین اجراهای تکرارپذیر روی CPU در تاریخ ۲۰۲۶-۰۶-۱۴ با `seed=0`:
-
-| مدل | validation accuracy | test accuracy | test macro-F1 | مسیر گزارش |
-| --- | ---: | ---: | ---: | --- |
-| `gcn` | 1.00 | 0.75 | 0.60 | `runs/benchmarks/persian-classification-gcn/metrics.json` |
-| `graphsage` | 1.00 | 1.00 | 1.00 | `runs/benchmarks/persian-classification-graphsage/metrics.json` |
-| `gat` | 1.00 | 1.00 | 1.00 | `runs/benchmarks/persian-classification-gat/metrics.json` |
-
-نمونه خروجی `metrics.json`:
-
-```json
-{
-  "dataset": "benchmarks/persian_text_classification.csv",
-  "model": "gcn",
-  "device": "cpu",
-  "num_documents": 24,
-  "num_nodes": 175,
-  "num_classes": 3,
-  "splits": {
-    "train": {"count": 16, "accuracy": 1.0, "macro_f1": 1.0},
-    "validation": {"count": 4, "accuracy": 1.0, "macro_f1": 1.0},
-    "test": {"count": 4, "accuracy": 0.75, "macro_f1": 0.6}
-  }
-}
-```
-
-برای اجرای همان benchmark توسط خودتان:
+`RGN` همراه با تست‌های واحد، یکپارچه، CLI، checkpoint، گراف و end-to-end
+منتشر می‌شود. دیتاست‌های کوچک در `benchmarks/` و `data/` نیز برای بررسی
+پیاده‌سازی و اجرای تکرارپذیر محلی در دسترس‌اند.
 
 ```bash
-python -m rakhshai_graph_nlp.cli \
-  --dataset benchmarks/persian_text_classification.csv \
-  --model gcn \
-  --epochs 50 \
-  --hidden-dim 8 \
-  --learning-rate 0.01 \
-  --dropout 0.2 \
-  --seed 0 \
-  --device cpu \
-  --output-dir runs/benchmarks/persian-classification-gcn
+python -m pytest
 ```
 
-برای مقایسه سه مدل اصلی:
+جزئیات تکمیلی معماری، روش `benchmark` و ارزیابی فنی در مستندات تخصصی آمده‌اند:
 
-```bash
-for model in gcn graphsage gat; do
-  python -m rakhshai_graph_nlp.cli \
-    --dataset benchmarks/persian_text_classification.csv \
-    --model "$model" \
-    --epochs 50 \
-    --hidden-dim 8 \
-    --learning-rate 0.01 \
-    --dropout 0.2 \
-    --seed 0 \
-    --device cpu \
-    --output-dir "runs/benchmarks/persian-classification-$model"
-done
-```
+- [Graph-LM V2](docs/graph_lm_v2.md)
+- [Graph Reasoning Core](docs/graph_reasoning_core.md)
+- [Low-Data Training Engine](docs/low_data_training_engine.md)
+- [گزارش ارزیابی MCP](docs/mcp_single_poem_evaluation.md)
 
-پس از اجرا، گزارش هر مدل در `metrics.json` ذخیره می‌شود. برای دیدن خلاصه:
+## نکات استقرار و استفادهٔ مسئولانه
 
-```bash
-python - <<'PY'
-import json
-from pathlib import Path
+- کیفیت تولید به پیکرهٔ آموزش، توکن‌ساز، چک‌پوینت، تنظیمات تولید و رمزگذار و
+  روش ترکیب گراف انتخاب‌شده وابسته است.
+- `build_text_graph` از ماتریس dense استفاده می‌کند و برای مجموعه‌های بسیار
+  بزرگ ممکن است به مسیر مقیاس‌پذیرتری برای ساخت گراف نیاز داشته باشد.
+- مدل هامان یک چک‌پوینت پایه برای تولید مقاله است، نه چت‌بات یا مرجع
+  واقعیت؛ خروجی را پیش از انتشار بازبینی کنید.
+- طبقه‌بندهای حساس، از جمله تشخیص نفرت‌پراکنی، باید پیش از استفاده با دادهٔ
+  نماینده، تحلیل خطا و کنترل سوگیری آموزش و ارزیابی شوند.
+- کلیدها و اطلاعات محرمانه را بیرون از مخزن نگه دارید و سیاست‌های هر سرویس
+  بیرونی متصل از طریق `MCP` یا اتصال‌های اختیاری را بررسی کنید.
 
-for path in sorted(Path("runs/benchmarks").glob("*/metrics.json")):
-    report = json.loads(path.read_text(encoding="utf-8"))
-    test = report["splits"]["test"]
-    print(
-        f"{report['model']:10s} "
-        f"test_acc={test['accuracy']:.3f} "
-        f"test_macro_f1={test['macro_f1']:.3f} "
-        f"report={path}"
-    )
-PY
-```
+## مستندات
 
-برای سنجش جدی‌تر، همین pipeline را روی benchmarkهای شناخته‌شده فارسی هم اجرا
-کنید. کافی است دیتاست را به CSV/TSV/JSONL با ستون‌های `text` و `label`
-تبدیل کنید و همان دستور CLI را بدهید.
+| موضوع | راهنما |
+| --- | --- |
+| فهرست مستندات | [`docs/index.md`](docs/index.md) |
+| API پایدار پایتون | [`docs/api.md`](docs/api.md) |
+| راهنمای گام‌به‌گام API | [`docs/api_usage.md`](docs/api_usage.md) |
+| گردش‌کارهای بومی `LLM` | [`docs/llm.md`](docs/llm.md) |
+| گردش‌کار مقاله‌نویسی فارسی | [`docs/article_llm.md`](docs/article_llm.md) |
+| معماری `Graph-LM` | [`docs/graph_lm_v2.md`](docs/graph_lm_v2.md) |
+| هستهٔ استدلال گرافی | [`docs/graph_reasoning_core.md`](docs/graph_reasoning_core.md) |
+| موتور آموزش دادهٔ کم | [`docs/low_data_training_engine.md`](docs/low_data_training_engine.md) |
+| توکن‌ساز فارسی | [`docs/persian_tokenizer.md`](docs/persian_tokenizer.md) |
+| گراف چندرابطه‌ای | [`docs/multi_relation_persian_graph.md`](docs/multi_relation_persian_graph.md) |
+| اتصال MCP | [`docs/mcp.md`](docs/mcp.md) |
 
-| benchmark | کاربرد رایج | نکته آماده‌سازی |
-| --- | --- | --- |
-| [Hamshahri Corpus](https://en.wikipedia.org/wiki/Hamshahri_Corpus) | طبقه‌بندی خبر و بازیابی اطلاعات فارسی | متن خبر را در `text` و دسته خبر را در `label` بگذارید. |
-| [SnappFood Persian Sentiment](https://www.kaggle.com/datasets/soheiltehranipour/snappfood-persian-sentiment-analysis) | تحلیل احساسات نظر کاربران | متن نظر را `text` و برچسب مثبت/منفی را `label` کنید. |
-| [SentiPers](https://www.researchgate.net/publication/322694676_SentiPers_A_Sentiment_Analysis_Corpus_for_Persian) | تحلیل احساسات فارسی | اگر چند سطح polarity دارید، آن‌ها را به برچسب‌های متنی ثابت تبدیل کنید. |
-| [Pars-ABSA](https://arxiv.org/abs/1908.01815) | احساسات جنبه‌محور فارسی | برای این CLI، هر نمونه را به یک برچسب کلی تبدیل کنید یا هر aspect را یک ردیف جدا بگیرید. |
+## دربارهٔ توسعه‌دهنده
 
-مثال اجرای دیتاست خودتان:
+ما `RGN` را در تیم [RakhshAI](https://rakhshai.com/) شرکت دانش‌بنیان
+[آریا هامان مهر پارسه](https://ariahaman.ir/) ایجاد و نگهداری می‌کنیم.
 
-```bash
-python -m rakhshai_graph_nlp.cli \
-  --dataset data/my_persian_dataset.csv \
-  --text-column text \
-  --label-column label \
-  --model gat \
-  --epochs 80 \
-  --hidden-dim 16 \
-  --learning-rate 0.005 \
-  --dropout 0.3 \
-  --seed 42 \
-  --device cuda \
-  --output-dir runs/my-persian-benchmark-gat
-```
+### تأییدیهٔ دانش‌بنیان
 
-اگر CUDA در سیستم در دسترس نباشد، `--device cpu` بگذارید. برای مقایسه منصفانه
-بین مدل‌ها، split، seed، تعداد epoch و پیش‌پردازش را ثابت نگه دارید و علاوه
-بر accuracy، مقدار macro-F1 را هم گزارش کنید؛ مخصوصاً وقتی کلاس‌ها نامتوازن
-هستند.
+محصول ما، `Rakhshai Graph-based NLP (RGN)`، تأییدیهٔ دانش‌بنیان را دریافت
+کرده است. برای
+استعلام، شناسهٔ ملی شرکت را در
+[سامانهٔ رسمی شرکت‌های دانش‌بنیان](https://pub.daneshbonyan.ir/dashboard)
+جست‌وجو کنید.
 
-## محدودیت‌های فعلی
+| مشخصه | مقدار |
+| --- | --- |
+| شرکت | آریا هامان مهر پارسه |
+| شناسهٔ ملی | `14009192677` |
+| محصول | `Rakhshai Graph-based NLP (RGN)` |
+| حوزه | پردازش زبان طبیعی فارسی، مدل‌سازی گرافی متن و زیرساخت هوش مصنوعی |
 
-- `build_text_graph` از ماتریس dense استفاده می‌کند و برای مجموعه‌های خیلی
-  بزرگ می‌تواند از نظر حافظه محدود شود.
-- مسیر Graph-LM فعلاً experimental است. benchmark اولیه نشان‌دهندهٔ درست‌بودن
-  pipeline و اثر مثبت اولیهٔ گراف است، نه کیفیت نهایی در سطح LLMهای بزرگ.
-- کیفیت تولید متن در Graph-LM به اندازه و تنوع corpus، تعداد epoch، tokenizer،
-  تنظیمات sampling و انتخاب graph encoder/fusion وابسته است.
-- کیفیت خروجی مدل‌ها به کیفیت داده، توکن‌سازی و تنظیمات آموزش وابسته است.
-- `HateSpeechDetector` برای کاربرد حساس باید با دادهٔ واقعی، بررسی خطا و
-  کنترل bias آموزش داده شود.
-- برای گراف معنایی قوی‌تر، از FarsNet، روابط واژگانی معتبر یا embedding
-  فارسی باکیفیت استفاده کنید.
+## مجوزها
 
-## منابع الهام
+- کد منبع `RGN`: [MIT](LICENSE)
+- مدل هامان:
+  [مجوز `Haman Model License 1.0`](https://huggingface.co/aria-haman/haman-fa-article-graph-llm-125m/blob/main/LICENSE)
+- دیتاست آموزش مدل هامان: مجوز `CC BY-SA 4.0`؛ جزئیات در
+  [کارت دیتاست](https://huggingface.co/datasets/aria-haman/haman-fa-wikipedia-articles-186k)
 
-- **TextGCN:** گراف واژه-سند با PMI و TF-IDF برای طبقه‌بندی متن.
-- **GCN / GraphSAGE / GAT:** مدل‌های شبکهٔ عصبی گرافی برای انتشار و تجمیع
-  اطلاعات در گراف.
-- **TextRank:** رتبه‌بندی جمله‌ها یا واژه‌ها با PageRank روی گراف شباهت.
-- **Causal Language Modeling:** آموزش مدل برای پیش‌بینی توکن بعدی و تولید متن.
-- **Transformer Decoder:** هستهٔ مدل زبانی دنباله‌ای که با graph-token fusion
-  از embedding گرافی هم استفاده می‌کند.
-- **Stanza:** ابزار تحلیل زبانی برای tokenization، lemmatization و dependency
-  parsing.
+برای سؤال فنی و گزارش خطا از
+[GitHub Issues](https://github.com/bazpardazesh-org/Rakhshai-Graph-based-NLP/issues)
+استفاده کنید.
